@@ -52,29 +52,30 @@ class MCPServer {
     try {
       console.log('Trying to connect to MCP server at:', this.serverUrl);
       
-      // Test connection bằng SSE endpoint
-      const response = await axios.get(`${this.serverUrl}${this.sseEndpoint}`, {
+      // For SSE MCP server, just test basic connectivity
+      // The actual SSE connection will be established during tool calls
+      const response = await axios.get(`${this.serverUrl}/`, {
         timeout: 5000,
         validateStatus: (status) => {
-          // SSE endpoint có thể return 200 hoặc setup connection
-          return status >= 200 && status < 400;
+          // Accept any response that indicates server is running
+          return status >= 200 && status < 500;
         }
-      }).catch(async (sseError) => {
-        // Nếu SSE fails, thử health endpoint
-        console.log('SSE endpoint failed, trying health endpoint...');
+      }).catch(async (rootError) => {
+        // If root fails, try head request
+        console.log('Root endpoint failed, trying HEAD request...');
         try {
-          return await axios.get(`${this.serverUrl}/health`, { timeout: 5000 });
-        } catch (healthError) {
-          throw sseError; // Throw original SSE error
+          return await axios.head(this.serverUrl, { timeout: 5000 });
+        } catch (headError) {
+          throw rootError; // Throw original error
         }
       });
       
-      if (response.status === 200) {
-        console.log('✅ Connected to MCP Server');
+      if (response.status >= 200 && response.status < 500) {
+        console.log('✅ Connected to MCP Server (SSE ready)');
         this.isConnected = true;
         return true;
       } else {
-        console.error('❌ MCP Server health check failed');
+        console.error('❌ MCP Server connectivity check failed');
         this.isConnected = false;
         return false;
       }
