@@ -13,18 +13,10 @@
     "sourceMap": true,
     "baseUrl": ".",
     "preserveSymlinks": true,
+    "noEmit": true,
     "typeRoots": [
       "../../node_modules",
       "../../node_modules/@rancher/shell/types"
-    ],
-    "types": [
-      "node",
-      "webpack-env",
-      "@types/node",
-      "@types/jest",
-      "@types/lodash",
-      "rancher",
-      "shell"
     ],
     "lib": [
       "esnext",
@@ -36,8 +28,11 @@
       "@shell/*": [
         "../../node_modules/@rancher/shell/*"
       ],
-      "@components/*": [
-        "@rancher/components/*"
+      "@/*": [
+        "./*"
+      ],
+      "~/*": [
+        "./*"
       ]
     }
   },
@@ -48,6 +43,7 @@
     "**/*.vue"
   ],
   "exclude": [
-    "../../node_modules"
+    "../../node_modules",
+    "**/*.js"
   ]
 }

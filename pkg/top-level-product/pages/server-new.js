@@ -2,76 +2,110 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const { spawn } = require('child_process');
+const path = require('path');
+const OpenAI = require('openai');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// MCP Server wrapper - Kết nối với MCP đang chạy
+// Khởi tạo OpenAI client
+const openai = new OpenAI({
+  baseURL: "http://192.168.10.32:11434/v1",
+  apiKey: "ollama"
+});
+
+// MCP Server wrapper - Kết nối với MCP server remote
 class MCPServer {
   constructor() {
-    this.process = null;
+    this.serverUrl = 'http://192.168.10.18:8080'; // URL của MCP server
+    this.isConnected = false;
   }
 
-  // Kết nối với MCP server đang chạy
-  connect() {
-    // Tạo process mới để giao tiếp với MCP server
-    this.process = spawn('node', ['dist/index.js'], {
-      cwd: '/home/hatthanh/mcp-server-kubernetes'
-    });
-    console.log('✅ Connected to MCP Server');
+  // Kết nối với MCP server remote
+  async connect() {
+    try {
+      console.log('Trying to connect to MCP server at:', this.serverUrl);
+      
+      // Test connection bằng ping request
+      const response = await axios.get(`${this.serverUrl}/health`, {
+        timeout: 5000
+      });
+      
+      if (response.status === 200) {
+        console.log('✅ Connected to MCP Server');
+        this.isConnected = true;
+        return true;
+      } else {
+        console.error('❌ MCP Server health check failed');
+        this.isConnected = false;
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error connecting to MCP Server:', error.message);
+      this.isConnected = false;
+      return false;
+    }
   }
 
-  async callTool(toolName, params = {}) { // ← Sửa arguments thành params
-    return new Promise((resolve, reject) => {
+  async callTool(toolName, params = {}) {
+    try {
+      if (!this.isConnected) {
+        throw new Error('MCP Server not connected');
+      }
+
       const request = {
         jsonrpc: "2.0",
         id: Date.now(),
         method: "tools/call",
         params: {
           name: toolName,
-          arguments: params // ← Sử dụng params ở đây
+          arguments: params
         }
       };
 
       console.log('Sending to MCP:', JSON.stringify(request, null, 2));
 
-      this.process.stdin.write(JSON.stringify(request) + '\n');
-
-      this.process.stdout.once('data', (data) => {
-        try {
-          const response = JSON.parse(data.toString());
-          console.log('MCP Response:', JSON.stringify(response, null, 2));
-          resolve(response);
-        } catch (error) {
-          reject(error);
-        }
+      const response = await axios.post(`${this.serverUrl}/mcp`, request, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
       });
 
-      this.process.stderr.on('data', (data) => {
-        console.error('MCP Error:', data.toString());
-      });
-    });
+      console.log('MCP Response:', JSON.stringify(response.data, null, 2));
+      return response.data;
+
+    } catch (error) {
+      console.error('MCP Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  // Kiểm tra trạng thái kết nối
+  isServerConnected() {
+    return this.isConnected;
   }
 }
 
 const mcpServer = new MCPServer();
-mcpServer.connect(); // Chỉ connect, không start
 
-// AI Local để phân tích prompt thành JSON-RPC
-async function analyzeWithAILocal(userPrompt) {
+// Kết nối MCP server khi khởi động
+mcpServer.connect().then(() => {
+  console.log('MCP Server connection initialized');
+}).catch((error) => {
+  console.error('Failed to initialize MCP Server connection:', error);
+});
+
+// OpenAI Structured Output để phân tích prompt thành JSON-RPC
+async function analyzeWithOpenAI(userPrompt) {
   try {
     const systemPrompt = `Bạn là một AI assistant chuyên phân tích prompt Kubernetes và chuyển đổi thành JSON-RPC format cho MCP server.
 
-Hãy phân tích prompt sau và trả về JSON với format chính xác:
-
-{
-  "isK8sCommand": true/false,
-  "tool": "tool_name",
-  "arguments": {
-    // các tham số phù hợp
-  }
-}
+Phân tích prompt sau và xác định:
+1. Liệu đây có phải là Kubernetes command không
+2. Tool nào cần sử dụng (nếu là K8s command)
+3. Arguments phù hợp cho tool đó
 
 Các tool có sẵn:
 - kubectl_get: lấy thông tin resources (pods, deployments, services, etc.)
@@ -82,38 +116,70 @@ Các tool có sẵn:
 - kubectl_scale: scale deployments
 - kubectl_rollout: quản lý rollout
 
-Ví dụ:
-- "tạo pod nginx" → { "isK8sCommand": true, "tool": "kubectl_create", "arguments": { "resourceType": "pod", "name": "nginx-pod", "image": "nginx" } }
-- "xem pods" → { "isK8sCommand": true, "tool": "kubectl_get", "arguments": { "resourceType": "pods", "namespace": "default" } }
-- "xóa pod test" → { "isK8sCommand": true, "tool": "kubectl_delete", "arguments": { "resourceType": "pod", "name": "test", "namespace": "default" } }
+Ví dụ phân tích:
+- "tạo pod nginx" → isK8sCommand: true, tool: "kubectl_create", arguments: { resourceType: "pod", name: "nginx-pod", image: "nginx" }
+- "xem pods" → isK8sCommand: true, tool: "kubectl_get", arguments: { resourceType: "pods", namespace: "default" }
+- "Hello world" → isK8sCommand: false, tool: null, arguments: {}`;
 
-Prompt: "${userPrompt}"
+    // Định nghĩa JSON Schema cho Structured Output
+    const k8sAnalysisSchema = {
+      type: "json_schema",
+      json_schema: {
+        name: "k8s_command_analysis",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            isK8sCommand: {
+              type: "boolean",
+              description: "Xác định có phải là Kubernetes command hay không"
+            },
+            tool: {
+              type: ["string", "null"],
+              description: "Tên tool cần sử dụng, null nếu không phải K8s command",
+              enum: ["kubectl_get", "kubectl_create", "kubectl_delete", "kubectl_describe", "kubectl_logs", "kubectl_scale", "kubectl_rollout", null]
+            },
+            arguments: {
+              type: "object",
+              description: "Arguments cho tool, object rỗng nếu không có",
+              additionalProperties: true
+            },
+            explanation: {
+              type: "string",
+              description: "Giải thích ngắn gọn về phân tích"
+            }
+          },
+          required: ["isK8sCommand", "tool", "arguments", "explanation"],
+          additionalProperties: false
+        }
+      }
+    };
 
-Chỉ trả về JSON, không có text khác.`;
-
-    const response = await axios.post('http://192.168.10.18:11435/api/generate', {
-      model: "llama3.2:1b",
-      prompt: systemPrompt,
-      stream: false
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Sử dụng model giá rẻ cho phân tích
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: k8sAnalysisSchema,
+      max_tokens: 500,
+      temperature: 0.1, // Giảm nhiễu để có kết quả nhất quán
     });
 
-    console.log('Raw AI API res', response.data);
-    const raw = response.data;
-    const aiResponse = raw.response ?? raw.message?.content ?? null;
+    const aiResponse = completion.choices[0]?.message?.content;
     if (!aiResponse) return null;
-    console.log('AI Response:', aiResponse);
 
-    let analysis;
-    try {
-      analysis = JSON.parse(aiResponse);
-    } catch (e) {
-      console.error('Không parse được JSON từ AI:', aiResponse);
-      analysis = null;
-    }
+    console.log('OpenAI Structured Analysis Response:', aiResponse);
 
-    return JSON.parse(aiResponse);
+    // Với Structured Output, không cần try/catch cho JSON.parse
+    // Response đã được đảm bảo là valid JSON theo schema
+    const analysis = JSON.parse(aiResponse);
+    
+    console.log('Parsed Analysis:', analysis);
+    return analysis;
+
   } catch (error) {
-    console.error('AI Local error:', error);
+    console.error('OpenAI Structured Output error:', error.message);
     return null;
   }
 }
@@ -126,11 +192,26 @@ app.post('/api/chat', async (req, res) => {
 
     console.log('User prompt:', userPrompt);
 
-    // Bước 1: AI Local phân tích prompt
-    const analysis = await analyzeWithAILocal(userPrompt);
+    // Kiểm tra MCP server connection
+    if (!mcpServer.isServerConnected()) {
+      console.log('MCP Server not connected, trying to reconnect...');
+      const connected = await mcpServer.connect();
+      
+      if (!connected) {
+        return res.status(503).json({ 
+          message: { 
+            content: '❌ MCP Server không khả dụng. Vui lòng kiểm tra kết nối đến 192.168.10.18.' 
+          } 
+        });
+      }
+    }
+
+    // Bước 1: OpenAI phân tích prompt
+    const analysis = await analyzeWithOpenAI(userPrompt);
     
     if (analysis && analysis.isK8sCommand) {
-      console.log('AI Analysis:', JSON.stringify(analysis, null, 2));
+      console.log('🔍 AI Analysis:', JSON.stringify(analysis, null, 2));
+      console.log('📝 Explanation:', analysis.explanation);
       
       // Bước 2: Gọi MCP server với JSON-RPC format
       const result = await mcpServer.callTool(analysis.tool, analysis.arguments);
@@ -139,31 +220,44 @@ app.post('/api/chat', async (req, res) => {
         const content = result.result.content[0]?.text || 'Command executed successfully';
         res.json({ 
           message: { 
-            content: `✅ K8s Command Result:\n${content}` 
+            content: `✅ K8s Command Result:\n📋 Analysis: ${analysis.explanation}\n📄 Output:\n${content}` 
           } 
         });
       } else {
         res.json({ 
           message: { 
-            content: '✅ Command executed successfully' 
+            content: `✅ Command executed successfully\n📋 Analysis: ${analysis.explanation}` 
           } 
         });
       }
     } else {
-       try {
-    const chatRes = await axios.post('http://192.168.10.18:11435/api/chat', {
-      model: "llama3.2:1b",
-      messages: userMessages.map(m => ({ role: m.role, content: m.content })),
-      stream: false
-    }, { timeout: 20000 });
+      // Nếu không phải K8s command, sử dụng OpenAI cho chat thông thường
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: userMessages.map(m => ({
+            role: m.role,
+            content: m.content
+          })),
+          max_tokens: 1000,
+          temperature: 0.7,
+        });
 
-    const reply = chatRes?.data?.message?.content;
-    return res.json({ message: { content: reply || '❌ Không nhận được phản hồi' } });
-  } catch (err) {
-    console.error('Chat error:', err?.message || err);
-    return res.status(502).json({ message: { content: '❌ Lỗi gọi AI local' } });
-  }
-}
+        const reply = completion.choices[0]?.message?.content;
+        return res.json({ 
+          message: { 
+            content: reply || '❌ Không nhận được phản hồi từ OpenAI' 
+          } 
+        });
+      } catch (err) {
+        console.error('OpenAI Chat error:', err?.message || err);
+        return res.status(502).json({ 
+          message: { 
+            content: '❌ Lỗi gọi OpenAI API' 
+          } 
+        });
+      }
+    }
 
   } catch (err) {
     console.error("Error:", err.message);
@@ -177,13 +271,30 @@ app.post('/api/test', async (req, res) => {
     const { prompt } = req.body;
     console.log('Test prompt:', prompt);
     
-    const analysis = await analyzeWithAILocal(prompt);
+    const analysis = await analyzeWithOpenAI(prompt);
     res.json({ analysis });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// API để kiểm tra trạng thái MCP server
+app.get('/api/mcp/status', (req, res) => {
+  res.json({
+    connected: mcpServer.isServerConnected(),
+    serverUrl: mcpServer.serverUrl,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.listen(8055, () => {
-  console.log("✅ Backend mới với AI Local → JSON-RPC → MCP Server chạy tại http://localhost:8055");
+  console.log("✅ Backend với OpenAI Structured Outputs + MCP Server remote chạy tại http://localhost:8055");
+  console.log("🌐 MCP Server URL: http://192.168.10.18:8080");
+  console.log("🤖 AI Provider: OpenAI API với Structured Outputs");
+  console.log("📊 Features: JSON Schema validation, Type-safe responses");
+  console.log("🔗 API endpoints:");
+  console.log("   - POST /api/chat - Chat với OpenAI Structured Outputs + MCP");
+  console.log("   - GET /api/mcp/status - Kiểm tra MCP status");
+  console.log("   - POST /api/test - Test phân tích prompt với Structured Output");
+  console.log("⚠️  Lưu ý: Sử dụng Ollama compatible endpoint tại http://192.168.10.32:11434/v1");
 });
