@@ -141,26 +141,26 @@ mcpServer.connect().then(() => {
 // OpenAI Structured Output để phân tích prompt thành JSON-RPC
 async function analyzeWithOpenAI(userPrompt) {
   try {
-    const systemPrompt = `Bạn là một AI assistant chuyên phân tích prompt Kubernetes và chuyển đổi thành JSON-RPC format cho MCP server.
+    const systemPrompt = `You are a Kubernetes command analyzer. Analyze user input to detect if it's a Kubernetes command.
 
-Phân tích prompt sau và xác định:
-1. Liệu đây có phải là Kubernetes command không
-2. Tool nào cần sử dụng (nếu là K8s command)
-3. Arguments phù hợp cho tool đó
+RULES:
+1. If input contains Kubernetes keywords (pod, deployment, service, namespace, kubectl, k8s, kubernetes), set isK8sCommand: true
+2. If input is about viewing/listing/getting resources, use tool: "kubectl_get"
+3. If input is about creating resources, use tool: "kubectl_create"
+4. If input is about deleting/removing resources, use tool: "kubectl_delete"
+5. If input is NOT related to Kubernetes, set isK8sCommand: false and tool: null
 
-Các tool có sẵn:
-- kubectl_get: lấy thông tin resources (pods, deployments, services, etc.)
-- kubectl_create: tạo resources (pods, deployments, services, etc.)
-- kubectl_delete: xóa resources
-- kubectl_describe: mô tả chi tiết resources
-- kubectl_logs: xem logs của pods
-- kubectl_scale: scale deployments
-- kubectl_rollout: quản lý rollout
+KEYWORDS to detect:
+- Vietnamese: "xem", "tạo", "xóa", "pod", "pods", "deployment", "service", "namespace"
+- English: "get", "create", "delete", "show", "list", "pods", "deployments", "services"
 
-Ví dụ phân tích:
-- "tạo pod nginx" → isK8sCommand: true, tool: "kubectl_create", arguments: { resourceType: "pod", name: "nginx-pod", image: "nginx" }
-- "xem pods" → isK8sCommand: true, tool: "kubectl_get", arguments: { resourceType: "pods", namespace: "default" }
-- "Hello world" → isK8sCommand: false, tool: null, arguments: {}`;
+EXAMPLES:
+Input: "xem pods" → isK8sCommand: true, tool: "kubectl_get", arguments: {"resourceType": "pods", "namespace": "default"}
+Input: "xem danh sách pods" → isK8sCommand: true, tool: "kubectl_get", arguments: {"resourceType": "pods", "namespace": "default"}
+Input: "cho toi xem pod trong namespace mern-app" → isK8sCommand: true, tool: "kubectl_get", arguments: {"resourceType": "pods", "namespace": "mern-app"}
+Input: "hello" → isK8sCommand: false, tool: null, arguments: {}
+
+Respond ONLY with JSON matching the schema.`;
 
     // Định nghĩa JSON Schema cho Structured Output
     const k8sAnalysisSchema = {
@@ -208,21 +208,89 @@ Ví dụ phân tích:
     });
 
     const aiResponse = completion.choices[0]?.message?.content;
-    if (!aiResponse) return null;
+    if (!aiResponse) {
+      console.error('❌ No response from OpenAI');
+      return null;
+    }
 
-    console.log('OpenAI Structured Analysis Response:', aiResponse);
+    console.log('🤖 Raw OpenAI Response:', aiResponse);
 
     // Với Structured Output, không cần try/catch cho JSON.parse
     // Response đã được đảm bảo là valid JSON theo schema
-    const analysis = JSON.parse(aiResponse);
-    
-    console.log('Parsed Analysis:', analysis);
-    return analysis;
+    let analysis;
+    try {
+      analysis = JSON.parse(aiResponse);
+      console.log('✅ Parsed Analysis:', JSON.stringify(analysis, null, 2));
+      
+      // Validate the analysis
+      if (typeof analysis.isK8sCommand !== 'boolean') {
+        console.error('❌ Invalid analysis: isK8sCommand must be boolean');
+        return null;
+      }
+      
+      return analysis;
+    } catch (parseError) {
+      console.error('❌ Failed to parse OpenAI response:', parseError);
+      console.error('❌ Raw response was:', aiResponse);
+      return null;
+    }
 
   } catch (error) {
     console.error('OpenAI Structured Output error:', error.message);
-    return null;
+    
+    // Fallback: Simple keyword detection if OpenAI fails
+    console.log('🔄 Fallback: Using simple keyword detection');
+    return analyzeWithKeywords(userPrompt);
   }
+}
+
+// Fallback function for simple keyword detection
+function analyzeWithKeywords(userPrompt) {
+  const prompt = userPrompt.toLowerCase();
+  
+  // K8s keywords detection
+  const k8sKeywords = ['pod', 'pods', 'deployment', 'service', 'namespace', 'kubectl', 'k8s', 'kubernetes'];
+  const viewKeywords = ['xem', 'show', 'get', 'list', 'danh sách'];
+  const createKeywords = ['tạo', 'create'];
+  const deleteKeywords = ['xóa', 'delete', 'remove'];
+  
+  const hasK8sKeyword = k8sKeywords.some(keyword => prompt.includes(keyword));
+  
+  if (!hasK8sKeyword) {
+    return {
+      isK8sCommand: false,
+      tool: null,
+      arguments: {},
+      explanation: "Không phải Kubernetes command (fallback detection)"
+    };
+  }
+  
+  let tool = "kubectl_get"; // default
+  let resourceType = "pods"; // default
+  let namespace = "default"; // default
+  
+  // Detect action
+  if (createKeywords.some(keyword => prompt.includes(keyword))) {
+    tool = "kubectl_create";
+  } else if (deleteKeywords.some(keyword => prompt.includes(keyword))) {
+    tool = "kubectl_delete";
+  }
+  
+  // Extract namespace
+  const namespaceMatch = prompt.match(/namespace\s+([a-zA-Z0-9-]+)/);
+  if (namespaceMatch) {
+    namespace = namespaceMatch[1];
+  }
+  
+  return {
+    isK8sCommand: true,
+    tool: tool,
+    arguments: {
+      resourceType: resourceType,
+      namespace: namespace
+    },
+    explanation: `Detected K8s command using fallback keyword detection: ${tool}`
+  };
 }
 
 // API endpoint chính
