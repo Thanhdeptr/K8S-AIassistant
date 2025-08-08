@@ -26,6 +26,8 @@ try {
 }
 
 const OpenAI = require('openai');
+const { zodResponseFormat } = require('openai/helpers/zod');
+const { z } = require('zod');
 
 const app = express();
 app.use(cors());
@@ -51,7 +53,7 @@ class MCPServer {
   async connect() {
     try {
       console.log('Trying to connect to MCP server at:', this.serverUrl);
-      
+
       // For SSE MCP server, just test basic connectivity
       // The actual SSE connection will be established during tool calls
       const response = await axios.get(`${this.serverUrl}/`, {
@@ -69,7 +71,7 @@ class MCPServer {
           throw rootError; // Throw original error
         }
       });
-      
+
       if (response.status >= 200 && response.status < 500) {
         console.log('✅ Connected to MCP Server (SSE ready)');
         this.isConnected = true;
@@ -138,6 +140,23 @@ mcpServer.connect().then(() => {
   console.error('Failed to initialize MCP Server connection:', error);
 });
 
+// Định nghĩa Zod schema cho Kubernetes command analysis
+const K8sCommandAnalysis = z.object({
+  isK8sCommand: z.boolean().describe("Xác định có phải là Kubernetes command hay không"),
+  tool: z.union([
+    z.literal("kubectl_get"),
+    z.literal("kubectl_create"),
+    z.literal("kubectl_delete"),
+    z.literal("kubectl_describe"),
+    z.literal("kubectl_logs"),
+    z.literal("kubectl_scale"),
+    z.literal("kubectl_rollout"),
+    z.null()
+  ]).describe("Tên tool cần sử dụng, null nếu không phải K8s command"),
+  arguments: z.record(z.any()).describe("Arguments cho tool, object rỗng nếu không có"),
+  explanation: z.string().describe("Giải thích ngắn gọn về phân tích")
+});
+
 // OpenAI Structured Output để phân tích prompt thành JSON-RPC
 async function analyzeWithOpenAI(userPrompt) {
   try {
@@ -155,89 +174,33 @@ KEYWORDS to detect:
 - English: "get", "create", "delete", "show", "list", "pods", "deployments", "services"
 
 EXAMPLES:
-Input: "xem pods" → isK8sCommand: true, tool: "kubectl_get", arguments: {"resourceType": "pods", "namespace": "default"}
-Input: "xem danh sách pods" → isK8sCommand: true, tool: "kubectl_get", arguments: {"resourceType": "pods", "namespace": "default"}
-Input: "cho toi xem pod trong namespace mern-app" → isK8sCommand: true, tool: "kubectl_get", arguments: {"resourceType": "pods", "namespace": "mern-app"}
-Input: "hello" → isK8sCommand: false, tool: null, arguments: {}
+Input: "xem pods" → {"isK8sCommand": true, "tool": "kubectl_get", "arguments": {"resourceType": "pods", "namespace": "default"}, "explanation": "Detected Vietnamese command to view pods"}
+Input: "xem danh sách pods" → {"isK8sCommand": true, "tool": "kubectl_get", "arguments": {"resourceType": "pods", "namespace": "default"}, "explanation": "Detected Vietnamese command to list pods"}
+Input: "cho toi xem pod trong namespace mern-app" → {"isK8sCommand": true, "tool": "kubectl_get", "arguments": {"resourceType": "pods", "namespace": "mern-app"}, "explanation": "Detected Vietnamese command to view pods in specific namespace"}
+Input: "hello" → {"isK8sCommand": false, "tool": null, "arguments": {}, "explanation": "Not a Kubernetes command"}
 
-Respond ONLY with JSON matching the schema.`;
+Analyze the user input and extract the command information.`;
 
-    // Định nghĩa JSON Schema cho Structured Output
-    const k8sAnalysisSchema = {
-      type: "json_schema",
-      json_schema: {
-        name: "k8s_command_analysis",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            isK8sCommand: {
-              type: "boolean",
-              description: "Xác định có phải là Kubernetes command hay không"
-            },
-            tool: {
-              type: ["string", "null"],
-              description: "Tên tool cần sử dụng, null nếu không phải K8s command",
-              enum: ["kubectl_get", "kubectl_create", "kubectl_delete", "kubectl_describe", "kubectl_logs", "kubectl_scale", "kubectl_rollout", null]
-            },
-            arguments: {
-              type: "object",
-              description: "Arguments cho tool, object rỗng nếu không có",
-              additionalProperties: true
-            },
-            explanation: {
-              type: "string",
-              description: "Giải thích ngắn gọn về phân tích"
-            }
-          },
-          required: ["isK8sCommand", "tool", "arguments", "explanation"],
-          additionalProperties: false
-        }
-      }
-    };
-
-    const completion = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.parse({
       model: "gpt-oss:20b", // Sử dụng model giá rẻ cho phân tích
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      response_format: k8sAnalysisSchema,
+      response_format: zodResponseFormat(K8sCommandAnalysis, "k8s_command_analysis"),
       max_tokens: 500,
       temperature: 0.1, // Giảm nhiễu để có kết quả nhất quán
     });
 
-    const aiResponse = completion.choices[0]?.message?.content;
-    if (!aiResponse) {
-      console.error('❌ No response from OpenAI');
-      return null;
-    }
+    // Với Zod structured output, response đã được parse và validate tự động
+    const analysis = completion.choices[0].message.parsed;
+    console.log('✅ Parsed Analysis:', JSON.stringify(analysis, null, 2));
 
-    console.log('🤖 Raw OpenAI Response:', aiResponse);
-
-    // Với Structured Output, không cần try/catch cho JSON.parse
-    // Response đã được đảm bảo là valid JSON theo schema
-    let analysis;
-    try {
-      analysis = JSON.parse(aiResponse);
-      console.log('✅ Parsed Analysis:', JSON.stringify(analysis, null, 2));
-      
-      // Validate the analysis
-      if (typeof analysis.isK8sCommand !== 'boolean') {
-        console.error('❌ Invalid analysis: isK8sCommand must be boolean');
-        return null;
-      }
-      
-      return analysis;
-    } catch (parseError) {
-      console.error('❌ Failed to parse OpenAI response:', parseError);
-      console.error('❌ Raw response was:', aiResponse);
-      return null;
-    }
+    return analysis;
 
   } catch (error) {
     console.error('OpenAI Structured Output error:', error.message);
-    
+
     // Fallback: Simple keyword detection if OpenAI fails
     console.log('🔄 Fallback: Using simple keyword detection');
     return analyzeWithKeywords(userPrompt);
@@ -247,15 +210,15 @@ Respond ONLY with JSON matching the schema.`;
 // Fallback function for simple keyword detection
 function analyzeWithKeywords(userPrompt) {
   const prompt = userPrompt.toLowerCase();
-  
+
   // K8s keywords detection
   const k8sKeywords = ['pod', 'pods', 'deployment', 'service', 'namespace', 'kubectl', 'k8s', 'kubernetes'];
   const viewKeywords = ['xem', 'show', 'get', 'list', 'danh sách'];
   const createKeywords = ['tạo', 'create'];
   const deleteKeywords = ['xóa', 'delete', 'remove'];
-  
+
   const hasK8sKeyword = k8sKeywords.some(keyword => prompt.includes(keyword));
-  
+
   if (!hasK8sKeyword) {
     return {
       isK8sCommand: false,
@@ -264,24 +227,35 @@ function analyzeWithKeywords(userPrompt) {
       explanation: "Không phải Kubernetes command (fallback detection)"
     };
   }
-  
+
   let tool = "kubectl_get"; // default
   let resourceType = "pods"; // default
   let namespace = "default"; // default
-  
+
   // Detect action
   if (createKeywords.some(keyword => prompt.includes(keyword))) {
     tool = "kubectl_create";
   } else if (deleteKeywords.some(keyword => prompt.includes(keyword))) {
     tool = "kubectl_delete";
   }
-  
+
+  // Extract resource type
+  if (prompt.includes('pod') || prompt.includes('pods')) {
+    resourceType = "pods";
+  } else if (prompt.includes('deployment') || prompt.includes('deployments')) {
+    resourceType = "deployments";
+  } else if (prompt.includes('service') || prompt.includes('services')) {
+    resourceType = "services";
+  } else if (prompt.includes('namespace') || prompt.includes('namespaces')) {
+    resourceType = "namespaces";
+  }
+
   // Extract namespace
   const namespaceMatch = prompt.match(/namespace\s+([a-zA-Z0-9-]+)/);
   if (namespaceMatch) {
     namespace = namespaceMatch[1];
   }
-  
+
   return {
     isK8sCommand: true,
     tool: tool,
@@ -305,38 +279,38 @@ app.post('/api/chat', async (req, res) => {
     if (!mcpServer.isServerConnected()) {
       console.log('MCP Server not connected, trying to reconnect...');
       const connected = await mcpServer.connect();
-      
+
       if (!connected) {
-        return res.status(503).json({ 
-          message: { 
-            content: '❌ MCP Server không khả dụng. Vui lòng kiểm tra kết nối đến 192.168.10.18.' 
-          } 
+        return res.status(503).json({
+          message: {
+            content: '❌ MCP Server không khả dụng. Vui lòng kiểm tra kết nối đến 192.168.10.18.'
+          }
         });
       }
     }
 
     // Bước 1: OpenAI phân tích prompt
     const analysis = await analyzeWithOpenAI(userPrompt);
-    
+
     if (analysis && analysis.isK8sCommand) {
       console.log('🔍 AI Analysis:', JSON.stringify(analysis, null, 2));
       console.log('📝 Explanation:', analysis.explanation);
-      
+
       // Bước 2: Gọi MCP server với JSON-RPC format
       const result = await mcpServer.callTool(analysis.tool, analysis.arguments);
-      
+
       if (result.result && result.result.content) {
         const content = result.result.content[0]?.text || 'Command executed successfully';
-        res.json({ 
-          message: { 
-            content: `✅ K8s Command Result:\n📋 Analysis: ${analysis.explanation}\n📄 Output:\n${content}` 
-          } 
+        res.json({
+          message: {
+            content: `✅ K8s Command Result:\n📋 Analysis: ${analysis.explanation}\n📄 Output:\n${content}`
+          }
         });
       } else {
-        res.json({ 
-          message: { 
-            content: `✅ Command executed successfully\n📋 Analysis: ${analysis.explanation}` 
-          } 
+        res.json({
+          message: {
+            content: `✅ Command executed successfully\n📋 Analysis: ${analysis.explanation}`
+          }
         });
       }
     } else {
@@ -353,17 +327,17 @@ app.post('/api/chat', async (req, res) => {
         });
 
         const reply = completion.choices[0]?.message?.content;
-        return res.json({ 
-          message: { 
-            content: reply || '❌ Không nhận được phản hồi từ OpenAI' 
-          } 
+        return res.json({
+          message: {
+            content: reply || '❌ Không nhận được phản hồi từ OpenAI'
+          }
         });
       } catch (err) {
         console.error('OpenAI Chat error:', err?.message || err);
-        return res.status(502).json({ 
-          message: { 
-            content: '❌ Lỗi gọi OpenAI API' 
-          } 
+        return res.status(502).json({
+          message: {
+            content: '❌ Lỗi gọi OpenAI API'
+          }
         });
       }
     }
@@ -379,7 +353,7 @@ app.post('/api/test', async (req, res) => {
   try {
     const { prompt } = req.body;
     console.log('Test prompt:', prompt);
-    
+
     const analysis = await analyzeWithOpenAI(prompt);
     res.json({ analysis });
   } catch (error) {
