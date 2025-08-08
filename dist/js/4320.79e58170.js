@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[4320],{34320:(e,n,u)=>{u.r(n),u.d(n,{default:()=>i});var a=u(20641);function r(e,n,u,r,s,t){const c=(0,a.g2)("ResourceDetail");return(0,a.uX)(),(0,a.Wv)(c)}var s=u(57805);const t={name:"AlertmanagerConfig",components:{ResourceDetail:s.A}};var c=u(66262);const l=(0,c.A)(t,[["render",r]]),i=l}}]);
+//# sourceMappingURL=4320.79e58170.js.map

@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[8685],{28685:(e,r,u)=>{u.r(r),u.d(r,{default:()=>p});var a=u(20641),s=u(90033);function l(e,r,u,l,t,n){return(0,a.uX)(),(0,a.CE)("div",null,[r[0]||(r[0]=(0,a.Lk)("h1",null,"ClusterDashboardCard",-1)),r[1]||(r[1]=(0,a.eW)()),(0,a.Lk)("h2",null,(0,s.v_)(u.resource.metadata.state.message),1)])}const t={name:"ClusterDashboardCard",props:{resource:{type:Object,required:!0}}};var n=u(66262);const d=(0,n.A)(t,[["render",l]]),p=d}}]);
+//# sourceMappingURL=8685.51691b09.js.map

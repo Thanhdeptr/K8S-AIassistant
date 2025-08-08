@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[3145],{83145:(e,r,t)=>{t.r(r),t.d(r,{fetchClusterResources:()=>c});var s=t(96763);async function c(e,r,t={}){const c=e.getters["cluster/schemaFor"](r);if(c)try{const s=await e.dispatch("cluster/findAll",{type:r,opt:t});return s}catch(u){return s.error(`Failed fetching cluster resource ${r} with error:`,u),[]}return[]}}}]);
+//# sourceMappingURL=3145.8855c484.js.map

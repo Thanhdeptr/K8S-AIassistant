@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[6141],{16141:(u,e,r)=>{r.r(e),r.d(e,{default:()=>d});var t=r(20641),n=r(90033);function a(u,e,r,a,p,s){return(0,t.uX)(),(0,t.CE)("div",null,"\n    Default dashboard for "+(0,n.v_)(s.product),1)}const p={computed:{product(){return this.$route.params.product}}};var s=r(66262);const c=(0,s.A)(p,[["render",a]]),d=c}}]);
+//# sourceMappingURL=6141.ef38aad4.js.map

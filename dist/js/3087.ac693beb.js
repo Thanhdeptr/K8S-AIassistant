@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[3087],{23087:(e,s,t)=>{t.r(s),t.d(s,{default:()=>l});var u=t(47441);const c={fetch({store:e,redirect:s}){const t=e.getters["defaultClusterId"];s(t?{name:"c-cluster",params:{cluster:t}}:{name:"c-cluster-product",params:{cluster:"local",product:u.NAME}})}},r=c,l=r}}]);
+//# sourceMappingURL=3087.ac693beb.js.map

@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[4848],{54848:(e,s,u)=>{u.r(s),u.d(s,{default:()=>o});var n=u(20641);function r(e,s,u,r,a,c){const t=(0,n.g2)("ResourceDetail");return(0,n.uX)(),(0,n.Wv)(t)}var a=u(57805);const c={name:"RolesResourcedId",components:{ResourceDetail:a.A}};var t=u(66262);const l=(0,t.A)(c,[["render",r]]),o=l}}]);
+//# sourceMappingURL=4848.3edc337f.js.map

@@ -1,0 +1,10 @@
+{
+  "name": "ai-chat",
+  "version": "0.1.0",
+  "description": "AI Chat Plugin with OpenAI API for Rancher",
+  "main": "index.js",
+  "rancher": true,
+  "keywords": ["rancher", "plugin", "ai", "chat", "openai"],
+  "author": "Your Name",
+  "license": "MIT"
+}

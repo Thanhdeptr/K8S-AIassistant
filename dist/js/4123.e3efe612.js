@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[4123],{44123:(e,u,n)=>{n.r(u),n.d(u,{default:()=>c});var l=n(20641),r=n(90033);function a(e,u,n,a,t,s){return(0,l.uX)(),(0,l.CE)("div",null,[u[0]||(u[0]=(0,l.Lk)("h1",null,"THIS IS A DEMO TAB",-1)),u[1]||(u[1]=(0,l.eW)()),(0,l.Lk)("h2",null,(0,r.v_)(n.resource.id),1)])}const t={name:"MyTabComponent",props:{resource:{type:Object,default:()=>({})}},data(){return{key:"value"}}};var s=n(66262);const p=(0,s.A)(t,[["render",a]]),c=p}}]);
+//# sourceMappingURL=4123.e3efe612.js.map

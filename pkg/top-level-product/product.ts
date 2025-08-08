@@ -3,13 +3,11 @@
 const BLANK_CLUSTER = '_';
 
 export function init($plugin:any, store:any) {
-  const YOUR_PRODUCT_NAME = 'myProductName';
-  const YOUR_K8S_RESOURCE_NAME = 'provisioning.cattle.io.cluster';
-  const CUSTOM_PAGE_NAME = 'page1';
+  const YOUR_PRODUCT_NAME = 'CustomTool';
+  const CUSTOM_PAGE_NAME = 'AIAssistant';
 
   const {
     product,
-    configureType,
     virtualType,
     basicType
   } = $plugin.DSL(store, YOUR_PRODUCT_NAME);
@@ -28,25 +26,6 @@ export function init($plugin:any, store:any) {
     }
   });
 
-  // defining a k8s resource as page
-  configureType(YOUR_K8S_RESOURCE_NAME, {
-    displayName: 'some-custom-name-you-wish-to-assign-to-this-resource',
-    isCreatable: true,
-    isEditable:  true,
-    isRemovable: true,
-    showAge:     true,
-    showState:   true,
-    canYaml:     true,
-    customRoute: {
-      name:   `${ YOUR_PRODUCT_NAME }-c-cluster-resource`,
-      params: {
-        product:  YOUR_PRODUCT_NAME,
-        cluster:  BLANK_CLUSTER,
-        resource: YOUR_K8S_RESOURCE_NAME
-      }
-    }
-  });
-
   // creating a custom page
   virtualType({
     labelKey: 'some.translation.key',
@@ -59,6 +38,7 @@ export function init($plugin:any, store:any) {
       }
     }
   });
+  
   // registering the defined pages as side-menu entries
-  basicType([YOUR_K8S_RESOURCE_NAME, CUSTOM_PAGE_NAME]);
+  basicType([CUSTOM_PAGE_NAME]);
 }

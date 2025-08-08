@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[302],{50302:(e,r,u)=>{u.r(r),u.d(r,{default:()=>i});var s=u(20641);function o(e,r,u,o,t,c){const n=(0,s.g2)("ResourceDetail");return(0,s.uX)(),(0,s.Wv)(n,{"resource-override":t.resource},null,8,["resource-override"])}var t=u(57805);const c={name:"RouteReceiverCreate",components:{ResourceDetail:t.A},data(){const{query:{resource:e}}=this.$route;return{resource:e}}};var n=u(66262);const a=(0,n.A)(c,[["render",o]]),i=a}}]);
+//# sourceMappingURL=302.d63c3202.js.map
