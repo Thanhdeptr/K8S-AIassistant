@@ -150,15 +150,20 @@ app.post('/api/chat', async (req, res) => {
         });
       }
     } else {
-      // Nếu không phải K8s command, gửi đến AI local để chat
-      const chatRes = await axios.post('http://192.168.10.18:11435/api/chat', {
-        model: "llama3.2:1b",
-        prompt: userPrompt,
-        stream: false
-      });
-      
-      res.json(chatRes.data);
-    }
+       try {
+    const chatRes = await axios.post('http://192.168.10.18:11435/api/chat', {
+      model: "llama3.2:1b",
+      messages: userMessages.map(m => ({ role: m.role, content: m.content })),
+      stream: false
+    }, { timeout: 20000 });
+
+    const reply = chatRes?.data?.message?.content;
+    return res.json({ message: { content: reply || '❌ Không nhận được phản hồi' } });
+  } catch (err) {
+    console.error('Chat error:', err?.message || err);
+    return res.status(502).json({ message: { content: '❌ Lỗi gọi AI local' } });
+  }
+}
 
   } catch (err) {
     console.error("Error:", err.message);
