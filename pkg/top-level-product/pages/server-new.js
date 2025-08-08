@@ -3,6 +3,16 @@ const cors = require('cors');
 const axios = require('axios');
 const { spawn } = require('child_process');
 const path = require('path');
+
+// Polyfill fetch cho Node.js versions cũ
+const fetch = require('node-fetch');
+if (!globalThis.fetch) {
+  globalThis.fetch = fetch;
+  globalThis.Headers = fetch.Headers;
+  globalThis.Request = fetch.Request;
+  globalThis.Response = fetch.Response;
+}
+
 const OpenAI = require('openai');
 
 const app = express();
