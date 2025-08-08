@@ -197,7 +197,7 @@ Ví dụ phân tích:
     };
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Sử dụng model giá rẻ cho phân tích
+      model: "gpt-oss:20b", // Sử dụng model giá rẻ cho phân tích
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -275,7 +275,7 @@ app.post('/api/chat', async (req, res) => {
       // Nếu không phải K8s command, sử dụng OpenAI cho chat thông thường
       try {
         const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: "gpt-oss:20b",
           messages: userMessages.map(m => ({
             role: m.role,
             content: m.content
