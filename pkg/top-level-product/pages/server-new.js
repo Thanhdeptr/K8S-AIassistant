@@ -26,6 +26,8 @@ try {
 }
 
 const OpenAI = require('openai');
+const { zodResponseFormat } = require('openai/helpers/zod');
+const { z } = require('zod');
 
 const app = express();
 app.use(cors());
