@@ -40,7 +40,10 @@ const openai = new OpenAI({
 // MCP Server wrapper - Kết nối với MCP server remote
 class MCPServer {
   constructor() {
-    this.serverUrl = 'http://192.168.10.18:8080'; // URL của MCP server
+    this.serverUrl = process.env.MCP_SERVER_URL || 'http://192.168.10.18:3000'; // URL của MCP server (SSE mode)
+    this.sseEndpoint = '/sse'; // SSE endpoint
+    this.messagesEndpoint = '/messages'; // Messages endpoint
+    this.sseEnabled = process.env.MCP_SSE_MODE === 'true'; // Flag để xác định sử dụng SSE hay STDIO
     this.isConnected = false;
   }
 
@@ -49,9 +52,21 @@ class MCPServer {
     try {
       console.log('Trying to connect to MCP server at:', this.serverUrl);
       
-      // Test connection bằng ping request
-      const response = await axios.get(`${this.serverUrl}/health`, {
-        timeout: 5000
+      // Test connection bằng SSE endpoint
+      const response = await axios.get(`${this.serverUrl}${this.sseEndpoint}`, {
+        timeout: 5000,
+        validateStatus: (status) => {
+          // SSE endpoint có thể return 200 hoặc setup connection
+          return status >= 200 && status < 400;
+        }
+      }).catch(async (sseError) => {
+        // Nếu SSE fails, thử health endpoint
+        console.log('SSE endpoint failed, trying health endpoint...');
+        try {
+          return await axios.get(`${this.serverUrl}/health`, { timeout: 5000 });
+        } catch (healthError) {
+          throw sseError; // Throw original SSE error
+        }
       });
       
       if (response.status === 200) {
@@ -88,11 +103,14 @@ class MCPServer {
 
       console.log('Sending to MCP:', JSON.stringify(request, null, 2));
 
-      const response = await axios.post(`${this.serverUrl}/mcp`, request, {
+      const response = await axios.post(`${this.serverUrl}${this.messagesEndpoint}`, request, {
         headers: {
           'Content-Type': 'application/json'
         },
-        timeout: 30000
+        timeout: 30000,
+        params: {
+          sessionId: 'default-session' // SSE requires sessionId
+        }
       });
 
       console.log('MCP Response:', JSON.stringify(response.data, null, 2));
@@ -311,7 +329,9 @@ app.get('/api/mcp/status', (req, res) => {
 
 app.listen(8055, () => {
   console.log("✅ Backend với OpenAI Structured Outputs + MCP Server remote chạy tại http://localhost:8055");
-  console.log("🌐 MCP Server URL: http://192.168.10.18:8080");
+  console.log("🌐 MCP Server URL: http://192.168.10.18:3000");
+  console.log("🔌 MCP SSE Endpoint: /sse");
+  console.log("📬 MCP Messages Endpoint: /messages");
   console.log("🤖 AI Provider: OpenAI API với Structured Outputs");
   console.log("📊 Features: JSON Schema validation, Type-safe responses");
   console.log("🔗 API endpoints:");
@@ -319,4 +339,5 @@ app.listen(8055, () => {
   console.log("   - GET /api/mcp/status - Kiểm tra MCP status");
   console.log("   - POST /api/test - Test phân tích prompt với Structured Output");
   console.log("⚠️  Lưu ý: Sử dụng Ollama compatible endpoint tại http://192.168.10.32:11434/v1");
+  console.log("🚀 MCP Server cần chạy với: ENABLE_UNSAFE_SSE_TRANSPORT=true");
 });
