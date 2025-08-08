@@ -26,8 +26,6 @@ try {
 }
 
 const OpenAI = require('openai');
-const { zodResponseFormat } = require('openai/helpers/zod');
-const { z } = require('zod');
 
 const app = express();
 app.use(cors());
@@ -106,14 +104,11 @@ class MCPServer {
 
       console.log('Sending to MCP:', JSON.stringify(request, null, 2));
 
-      const response = await axios.post(`${this.serverUrl}${this.messagesEndpoint}`, request, {
+      const response = await axios.post(`${this.serverUrl}${this.messagesEndpoint}?sessionId=default-session`, request, {
         headers: {
           'Content-Type': 'application/json'
         },
-        timeout: 30000,
-        params: {
-          sessionId: 'default-session' // SSE requires sessionId
-        }
+        timeout: 30000
       });
 
       console.log('MCP Response:', JSON.stringify(response.data, null, 2));
@@ -181,7 +176,7 @@ Input: "hello" → {"isK8sCommand": false, "tool": null, "arguments": {}, "expla
 
 Analyze the user input and extract the command information.`;
 
-    const completion = await openai.chat.completions.parse({
+    const completion = await openai.chat.completions.create({
       model: "gpt-oss:20b", // Sử dụng model giá rẻ cho phân tích
       messages: [
         { role: "system", content: systemPrompt },
