@@ -5,12 +5,24 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 // Polyfill fetch cho Node.js versions cũ
-const fetch = require('node-fetch');
-if (!globalThis.fetch) {
-  globalThis.fetch = fetch;
-  globalThis.Headers = fetch.Headers;
-  globalThis.Request = fetch.Request;
-  globalThis.Response = fetch.Response;
+try {
+  // Thử sử dụng undici (preferred)
+  const { fetch, Headers, Request, Response } = require('undici');
+  if (!globalThis.fetch) {
+    globalThis.fetch = fetch;
+    globalThis.Headers = Headers;
+    globalThis.Request = Request;
+    globalThis.Response = Response;
+  }
+} catch (err) {
+  // Fallback to node-fetch v2
+  const fetch = require('node-fetch');
+  if (!globalThis.fetch) {
+    globalThis.fetch = fetch;
+    globalThis.Headers = fetch.Headers;
+    globalThis.Request = fetch.Request;
+    globalThis.Response = fetch.Response;
+  }
 }
 
 const OpenAI = require('openai');
