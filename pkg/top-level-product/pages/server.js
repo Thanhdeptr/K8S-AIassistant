@@ -313,7 +313,7 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
             }
             continue; // quay lại để model tổng hợp
         }
-
+        console.log('🔍 Messages:', msg.content);
         // Không còn tool_calls → câu trả lời cuối
         return { text: msg.content || '(no content)', trace: messages };
     }
