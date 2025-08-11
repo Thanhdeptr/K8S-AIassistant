@@ -35,8 +35,8 @@ app.use(express.json());
 
 // Khởi tạo OpenAI client
 const openai = new OpenAI({
-baseURL: "https://az-aiai.openai.azure.com/",
-  apiKey: "6UQTCPSQcRPOMmvb5HsWhuTs6fKZawAinjV7jhfdyl4xxBeMZHLfJQQJ99BGACqBBLyXJ3w3AAABACOGlZPT"
+baseURL: "http://192.168.10.32:11434/",
+  apiKey: "ollama"
 });
 
 // MCP Server wrapper - Kết nối với MCP server remote
