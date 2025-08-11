@@ -142,10 +142,8 @@ export default {
 
       } catch (err) {
         console.error("Fetch error:", err);
-        // Kiểm tra xem có phải do cancel không
-        if (err.name === 'AbortError') {
-          this.messages.push({ role: "bot", text: "⏹️ Đã dừng yêu cầu." });
-        } else {
+        // Chỉ hiển thị lỗi nếu không phải do cancel
+        if (err.name !== 'AbortError') {
           this.messages.push({ role: "bot", text: `❌ Lỗi kết nối: ${err.message}` });
         }
       } finally {
