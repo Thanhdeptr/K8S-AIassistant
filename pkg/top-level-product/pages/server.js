@@ -1,7 +1,6 @@
 // server.js
 const express = require('express');
 const cors = require('cors');
-const { spawn } = require('child_process');
 
 // --- Polyfill fetch cho Node cũ (ưu tiên undici) ---
 try {
@@ -25,10 +24,10 @@ const OLLAMA_BASE = process.env.OLLAMA_BASE || 'http://192.168.10.32:11434/v1';
 const MODEL_NAME = process.env.MODEL_NAME || 'gpt-oss:20b'; // model trong Ollama
 const MCP_BASE = process.env.MCP_BASE || 'http://192.168.10.18:3000'; // http://host:port
 
-// (nếu MCP cần header như Authorization thì thêm ở đây)
+// Nếu MCP cần header như Authorization thì thêm ở đây
 const MCP_HEADERS = {
-    'content-type': 'application/json'
-    // 'authorization': `Bearer ${process.env.MCP_TOKEN}`
+    'content-type': 'application/json',
+    // 'authorization': `Bearer ${process.env.MCP_TOKEN}`,
 };
 
 // ====== OPENAI CLIENT (Ollama-compatible) ======
@@ -37,113 +36,145 @@ const openai = new OpenAI({
     apiKey: 'ollama', // placeholder
 });
 
-// ====== MCP CLIENT (HTTP + JSON-RPC) ======
-async function mcpCall(method, params = {}, id = Date.now()) {
-    const r = await fetch(`${MCP_BASE}/messages`, {
-        method: 'POST',
-        headers: MCP_HEADERS,
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id,
-            method,
-            params,
-        }),
-    });
-    if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
-    const data = await r.json();
-    if (data.error) throw new Error(`MCP error: ${data.error.message || 'unknown'}`);
-    return data.result;
-}
+// ====== MCP HTTP + SSE CLIENT ======
+class MCPHttpClient {
+    constructor(base, headers = {}) {
+        this.base = base.replace(/\/+$/, ''); // normalize
+        this.headers = headers;
+        this.sessionPath = null;              // e.g. "/messages?sessionId=UUID"
+        this.controller = null;
+    }
 
-// (Tuỳ server: mở SSE để giữ session/nhận notify; không bắt buộc nếu chỉ gọi lẻ)
-async function mcpInitialize() {
-    // Gửi initialize để server biết client-info + capabilities
-    return mcpCall('initialize', {
-        protocolVersion: '2025-06-18',
-        capabilities: { tools: {}, resources: {}, prompts: {} },
-        clientInfo: { name: 'ollama-mcp-client', version: '0.1.0' },
-    });
-}
+    async connect() {
+        // Mở SSE, đọc đến khi gặp event: endpoint → data: /messages?sessionId=...
+        this.controller = new AbortController();
+        const r = await fetch(`${this.base}/sse`, {
+            method: 'GET',
+            headers: { Accept: 'text/event-stream' },
+            signal: this.controller.signal,
+        });
+        if (!r.ok || !r.body) throw new Error(`SSE HTTP ${r.status}`);
 
-async function mcpListTools() {
-    const res = await mcpCall('tools/list', {});
-    // res.tools: [{name, description, inputSchema, outputSchema?}, ...]
-    return res.tools || [];
-}
+        const reader = r.body.getReader();
+        let buf = '';
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) throw new Error('SSE closed before endpoint');
+            buf += Buffer.from(value).toString('utf8');
 
-async function mcpToolsCall(name, args) {
-    // Chuẩn MCP: tools/call với { name, arguments }
-    const res = await mcpCall('tools/call', { name, arguments: args });
-    // Kết quả thường có { content: string | object, ... }
-    return res;
+            // tách event theo \n\n
+            let idx;
+            while ((idx = buf.indexOf('\n\n')) >= 0) {
+                const raw = buf.slice(0, idx);
+                buf = buf.slice(idx + 2);
+
+                let ev = '', data = '';
+                for (const line of raw.split('\n')) {
+                    const s = line.trim();
+                    if (s.startsWith('event:')) ev = s.slice(6).trim();
+                    else if (s.startsWith('data:')) data += (data ? '\n' : '') + s.slice(5).trim();
+                }
+                if (ev === 'endpoint' && data) {
+                    // data có thể là path "/messages?sessionId=..." hoặc full URL
+                    this.sessionPath = data.startsWith('http')
+                        ? data.replace(this.base, '')
+                        : (data.startsWith('/') ? data : `/${data}`);
+                    // Đủ thông tin rồi, đóng SSE (nếu muốn giữ notify thì đừng abort)
+                    try { this.controller.abort(); } catch { }
+                    return this.sessionPath;
+                }
+            }
+        }
+    }
+
+    async rpc(method, params = {}, id = Date.now()) {
+        if (!this.sessionPath) throw new Error('MCP not connected (missing sessionPath)');
+        const url = this.sessionPath.startsWith('http')
+            ? this.sessionPath
+            : `${this.base}${this.sessionPath}`;
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { ...MCP_HEADERS },
+            body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+        });
+        if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
+        const data = await r.json();
+        if (data.error) throw new Error(data.error.message || 'MCP error');
+        return data.result;
+    }
+
+    initialize() {
+        return this.rpc('initialize', {
+            protocolVersion: '2025-06-18', // hoặc theo server
+            capabilities: { tools: {}, resources: {}, prompts: {} },
+            clientInfo: { name: 'ollama-mcp-http', version: '0.1.0' },
+        });
+    }
+
+    async listTools() {
+        const res = await this.rpc('tools/list', {});
+        return res.tools || [];
+    }
+
+    toolsCall(name, args) {
+        return this.rpc('tools/call', { name, arguments: args });
+    }
 }
 
 // ====== CHUYỂN schema MCP -> tools OpenAI-compatible (Ollama) ======
 function mapMcpToolsToOpenAITools(mcpTools) {
-    // Ollama/OpenAI: { type:"function", function:{ name, description, parameters } }
-    return mcpTools.map(t => ({
+    return mcpTools.map((t) => ({
         type: 'function',
         function: {
             name: t.name,
             description: t.description || `MCP tool: ${t.name}`,
-            parameters: t.inputSchema || { type: 'object', properties: {} },
-        }
+            parameters: t.inputSchema || { type: 'object', properties: {} }, // JSON Schema
+        },
     }));
 }
 
+const truncate = (s, n) =>
+    (s && s.length > n ? s.slice(0, n) + '\n...[truncated]...' : s || '');
+
 // ====== VÒNG LẶP TOOL-CALLING (thuần Ollama) ======
-async function runToolCallingWithOllama({ userMessages, tools }) {
-    // userMessages: [{role, content}...]
-    // tools: mảng OpenAI-compatible (từ MCP)
+async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
     const messages = userMessages.slice();
     messages.push({
         role: 'system',
         content:
-            'Khi cần thao tác Kubernetes, hãy gọi function thích hợp (đừng đoán). ' +
-            'Trả lời ngắn gọn, nếu gọi tool thì chờ kết quả tool.'
+            'Khi thao tác Kubernetes, hãy gọi function thích hợp (đừng đoán). ' +
+            'Nếu gọi tool thì chờ kết quả tool trước khi trả lời.',
     });
 
-    // Giới hạn vòng lặp tool-calls
     let guard = 0;
-
     while (guard++ < 6) {
         const completion = await openai.chat.completions.create({
             model: MODEL_NAME,
             messages,
             tools,
-            tool_choice: 'auto' // nếu model hay "gọi bừa", bạn có thể bỏ dòng này
+            tool_choice: 'auto',
         });
 
         const choice = completion.choices?.[0];
         const msg = choice?.message || {};
-        const toolCalls = msg.tool_calls || msg.toolCalls || []; // tuỳ model
+        const toolCalls = msg.tool_calls || msg.toolCalls || [];
 
-        // Nếu model muốn gọi tool
         if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-            // Ghi lại assistant tool_calls để duy trì "trace"
             messages.push({ role: 'assistant', tool_calls: toolCalls });
 
-            // Thực thi lần lượt từng tool_call
             for (const tc of toolCalls) {
                 const { id, function: fn } = tc;
                 const name = fn?.name;
                 let args = {};
-                try {
-                    args = fn?.arguments ? JSON.parse(fn.arguments) : {};
-                } catch {
-                    // nếu parse fail, để args = {}
-                }
+                try { args = fn?.arguments ? JSON.parse(fn.arguments) : {}; } catch { }
 
-                // Gọi qua MCP
                 let toolOutput = '';
                 try {
-                    const mcpRes = await mcpToolsCall(name, args);
-                    // Chuẩn hoá output thành string ngắn gọn
+                    const mcpRes = await mcp.toolsCall(name, args);
                     if (mcpRes?.content !== undefined) {
-                        toolOutput =
-                            typeof mcpRes.content === 'string'
-                                ? mcpRes.content
-                                : JSON.stringify(mcpRes.content);
+                        toolOutput = typeof mcpRes.content === 'string'
+                            ? mcpRes.content
+                            : JSON.stringify(mcpRes.content);
                     } else {
                         toolOutput = JSON.stringify(mcpRes);
                     }
@@ -151,63 +182,61 @@ async function runToolCallingWithOllama({ userMessages, tools }) {
                     toolOutput = `ERROR from MCP: ${e.message}`;
                 }
 
-                // Đẩy kết quả tool về cho model
                 messages.push({
                     role: 'tool',
-                    tool_call_id: id, // rất quan trọng để model "liên kết" kết quả
-                    content: truncate(toolOutput, 48 * 1024)
+                    tool_call_id: id, // quan trọng để model “ghép” đúng kết quả
+                    content: truncate(toolOutput, 48 * 1024),
                 });
             }
-
-            // quay lại vòng lặp để model tổng hợp kết quả
-            continue;
+            continue; // quay lại để model tổng hợp
         }
 
-        // Không còn tool_calls → đây là câu trả lời cuối
-        const finalText = msg.content || '(no content)';
-        return { text: finalText, trace: messages };
+        // Không còn tool_calls → câu trả lời cuối
+        return { text: msg.content || '(no content)', trace: messages };
     }
 
     return { text: '⚠️ Dừng do quá nhiều vòng tool-calling', trace: messages };
 }
-
-const truncate = (s, n) => (s && s.length > n ? s.slice(0, n) + '\n...[truncated]...' : s || '');
 
 // ====== EXPRESS APP ======
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Cache tools (từ MCP) để khỏi gọi lại mỗi request
+// MCP client (HTTP+SSE) — tạo 1 lần và tái sử dụng
+let mcpClient = null;
 let OPENAI_COMPAT_TOOLS = [];
+
+async function ensureMcp() {
+    if (mcpClient) return mcpClient;
+    mcpClient = new MCPHttpClient(MCP_BASE, MCP_HEADERS);
+    const endpoint = await mcpClient.connect(); // GET /sse → lấy /messages?sessionId=...
+    await mcpClient.initialize();
+    const mcpTools = await mcpClient.listTools();
+    OPENAI_COMPAT_TOOLS = mapMcpToolsToOpenAITools(mcpTools);
+    console.log('🔌 MCP session endpoint:', endpoint);
+    console.log('🔧 Loaded tools from MCP:', mcpTools.map(t => t.name));
+    return mcpClient;
+}
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const userMessages = (req.body.messages || []).map(m => ({
+        const userMessages = (req.body.messages || []).map((m) => ({
             role: m.role,
-            content: m.content
+            content: m.content,
         }));
 
-        // 1) initialize MCP (1 lần mỗi process; ở đây gọi "best effort")
-        try { await mcpInitialize(); } catch (e) { console.warn('MCP init warn:', e.message); }
+        // 1) Kết nối MCP + lấy tools (cache)
+        const mcp = await ensureMcp();
 
-        // 2) lấy tools từ MCP nếu cache trống (hoặc bạn tự lên lịch refresh)
-        if (OPENAI_COMPAT_TOOLS.length === 0) {
-            const mcpTools = await mcpListTools();
-            OPENAI_COMPAT_TOOLS = mapMcpToolsToOpenAITools(mcpTools);
-            console.log('🔧 Loaded tools from MCP:', mcpTools.map(t => t.name));
-        }
-
-        // 3) chạy vòng lặp tool-calling với Ollama
+        // 2) Chạy vòng lặp tool-calling với Ollama
         const result = await runToolCallingWithOllama({
             userMessages,
-            tools: OPENAI_COMPAT_TOOLS
+            tools: OPENAI_COMPAT_TOOLS,
+            mcp,
         });
 
-        return res.json({
-            message: { content: result.text }
-            // , trace: result.trace   // bật nếu muốn debug
-        });
+        return res.json({ message: { content: result.text } });
     } catch (err) {
         console.error('Chat error:', err?.message || err);
         return res.status(502).json({ message: { content: '❌ Lỗi xử lý yêu cầu' } });
@@ -215,10 +244,18 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // health
-app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/health', async (_req, res) => {
+    try {
+        await ensureMcp();
+        res.json({ ok: true, ollama: OLLAMA_BASE, model: MODEL_NAME, mcp: MCP_BASE });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
 
 app.listen(8055, '0.0.0.0', () => {
     console.log('✅ API chạy: http://0.0.0.0:8055');
     console.log('🤖 Ollama baseURL:', OLLAMA_BASE, ' | MODEL:', MODEL_NAME);
-    console.log('🔌 MCP base:', MCP_BASE, ' (/messages, /sse)');
+    console.log('🌐 MCP base:', MCP_BASE, ' (HTTP + SSE)');
+    console.log('ℹ️ Flow: GET /sse → nhận "event:endpoint" → POST JSON-RPC vào /messages?sessionId=...');
 });
