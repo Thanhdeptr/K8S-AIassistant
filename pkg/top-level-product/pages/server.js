@@ -21,7 +21,7 @@ const OpenAI = require('openai');
 
 // ====== CẤU HÌNH ======
 const OLLAMA_BASE = process.env.OLLAMA_BASE || 'http://192.168.10.32:11434/v1';
-const MODEL_NAME = process.env.MODEL_NAME || 'llama3.1:8b'; // model trong Ollama
+const MODEL_NAME = process.env.MODEL_NAME || 'deepseek-r1:14b'; // model trong Ollama
 const MCP_BASE = process.env.MCP_BASE || 'http://192.168.10.18:3000'; // http://host:port
 
 // Nếu MCP cần header như Authorization thì thêm ở đây
