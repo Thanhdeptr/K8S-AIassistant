@@ -4,7 +4,28 @@
 
     <div class="chat-messages">
       <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
-        {{ msg.text }}
+        <!-- Regular text message -->
+        <div v-if="!msg.isLogs" class="message-text">
+          {{ msg.text }}
+        </div>
+        
+        <!-- Formatted logs display -->
+        <div v-if="msg.isLogs" class="logs-container">
+          <div class="logs-header">
+            <span class="logs-title">📋 Kubernetes Logs</span>
+            <span class="logs-count">{{ msg.logs.length }} entries</span>
+          </div>
+          <div class="logs-content">
+            <div v-for="(log, logIndex) in msg.logs" :key="logIndex" class="log-entry">
+              <div class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</div>
+              <div class="log-level" :class="getLogLevelClass(log.level)">
+                {{ log.level }}
+              </div>
+              <div class="log-category">{{ log.category }}</div>
+              <div class="log-message">{{ log.message }}</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -64,7 +85,19 @@ export default {
 
         if (data.message && data.message.content) {
           const reply = data.message.content.trim();
-          this.messages.push({ role: "bot", text: reply });
+          
+          // Check if the reply contains Kubernetes logs (table format)
+          if (this.isKubernetesLogs(reply)) {
+            const formattedLogs = this.parseKubernetesLogs(reply);
+            this.messages.push({ 
+              role: "bot", 
+              text: "Đây là logs từ Kubernetes:", 
+              isLogs: true,
+              logs: formattedLogs
+            });
+          } else {
+            this.messages.push({ role: "bot", text: reply });
+          }
         } else {
           this.messages.push({ role: "bot", text: "❌ Không nhận được phản hồi từ Ollama." });
         }
@@ -75,6 +108,81 @@ export default {
       } finally {
         this.isLoading = false;
       }
+    },
+
+    // Check if the response contains Kubernetes logs in table format
+    isKubernetesLogs(text) {
+      return text.includes('| Timestamp | Level | Category | Message |') || 
+             text.includes('Mười dòng cuối cùng của log container');
+    },
+
+    // Parse Kubernetes logs from table format
+    parseKubernetesLogs(text) {
+      const logs = [];
+      const lines = text.split('\n');
+      
+      for (const line of lines) {
+        // Skip header lines and empty lines
+        if (line.includes('|-----') || line.includes('| Timestamp') || 
+            line.includes('| # |') || line.trim() === '') {
+          continue;
+        }
+        
+        // Parse table row
+        const parts = line.split('|').map(part => part.trim()).filter(part => part);
+        if (parts.length >= 4) {
+          logs.push({
+            timestamp: parts[1] || parts[0],
+            level: parts[2] || parts[1],
+            category: parts[3] || parts[2],
+            message: parts[4] || parts[3] || ''
+          });
+        }
+      }
+      
+      return logs;
+    },
+
+    // Format timestamp for better readability
+    formatTimestamp(timestamp) {
+      if (!timestamp) return '';
+      
+      try {
+        // Handle different timestamp formats
+        let date;
+        if (timestamp.includes('T')) {
+          date = new Date(timestamp);
+        } else {
+          // Handle other formats if needed
+          date = new Date(timestamp);
+        }
+        
+        return date.toLocaleString('vi-VN', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      } catch (e) {
+        return timestamp;
+      }
+    },
+
+    // Get CSS class for log level styling
+    getLogLevelClass(level) {
+      const levelMap = {
+        'I': 'level-info',
+        'INFO': 'level-info',
+        'E': 'level-error',
+        'ERROR': 'level-error',
+        'W': 'level-warning',
+        'WARNING': 'level-warning',
+        'D': 'level-debug',
+        'DEBUG': 'level-debug'
+      };
+      return levelMap[level] || 'level-default';
     }
   }
 };
@@ -120,7 +228,7 @@ export default {
 }
 
 .message {
-  max-width: 75%;
+  max-width: 85%;
   padding: 10px 14px;
   margin: 8px 0;
   border-radius: 12px;
@@ -140,6 +248,113 @@ export default {
   background: #e0e0e0;
   color: #333;
   border-bottom-left-radius: 2px;
+}
+
+.message-text {
+  line-height: 1.4;
+}
+
+/* Logs styling */
+.logs-container {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.logs-header {
+  background: #e9ecef;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.logs-title {
+  font-weight: 600;
+  color: #495057;
+}
+
+.logs-count {
+  font-size: 12px;
+  color: #6c757d;
+  background: #fff;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.logs-content {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.log-entry {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f3f4;
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.log-entry:last-child {
+  border-bottom: none;
+}
+
+.log-timestamp {
+  color: #6c757d;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.log-level {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  min-width: 40px;
+}
+
+.level-info {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.level-error {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.level-warning {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.level-debug {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+.level-default {
+  background: #f8f9fa;
+  color: #6c757d;
+}
+
+.log-category {
+  color: #495057;
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.log-message {
+  color: #212529;
+  line-height: 1.3;
+  word-break: break-word;
 }
 
 .chat-input {
@@ -162,5 +377,35 @@ export default {
   border: none;
   cursor: pointer;
   border-bottom-right-radius: 12px;
+}
+
+.chat-input button:hover {
+  background-color: #0056b3;
+}
+
+.chat-input button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .message {
+    max-width: 95%;
+  }
+  
+  .log-entry {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  
+  .log-timestamp {
+    font-size: 10px;
+  }
+  
+  .log-level {
+    font-size: 10px;
+    min-width: 35px;
+  }
 }
 </style>
