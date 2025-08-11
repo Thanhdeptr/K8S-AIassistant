@@ -37,18 +37,25 @@ const openai = new OpenAI({
 });
 
 // ====== MCP HTTP + SSE CLIENT ======
-// ====== MCP HTTP + SSE CLIENT ======
 class MCPHttpClient {
     constructor(base, headers = {}) {
         this.base = base.replace(/\/+$/, '');
         this.headers = headers;
-        this.sessionPath = null;     // e.g. "/messages?sessionId=UUID"
-        this.controller = null;      // AbortController cho SSE
-        this._endpointReady = null;  // Promise resolve khi có endpoint
+
+        this.sessionPath = null;        // "/messages?sessionId=UUID" (hoặc full URL)
+        this.controller = null;         // AbortController cho SSE
+        this.cookie = null;             // giữ Set-Cookie (nếu có)
+
+        this._endpointReady = null;     // Promise resolve khi có sessionPath
+        this._sseReader = null;         // reader của SSE
+        this._buf = '';                 // buffer text SSE
+
+        this._pending = new Map();      // id -> {resolve, reject, timer}
+        this._defaultTimeoutMs = 30000; // timeout cho 1 RPC (30s)
     }
 
     async connect() {
-        if (this.sessionPath) return this.sessionPath; // đã có session
+        if (this.sessionPath) return this.sessionPath;
 
         this.controller = new AbortController();
         const r = await fetch(`${this.base}/sse`, {
@@ -58,26 +65,32 @@ class MCPHttpClient {
         });
         if (!r.ok || !r.body) throw new Error(`SSE HTTP ${r.status}`);
 
-        // Tạo promise chờ endpoint
+        // Ghi nhận Set-Cookie nếu có (một số server yêu cầu gửi lại cookie)
+        const setCookie = r.headers.get('set-cookie');
+        if (setCookie) this.cookie = setCookie;
+
+        // Promise chờ endpoint
         let resolveEndpoint, rejectEndpoint;
         this._endpointReady = new Promise((res, rej) => { resolveEndpoint = res; rejectEndpoint = rej; });
 
-        // Đọc SSE ở nền, KHÔNG đóng/abort sau khi nhận endpoint
+        // Bắt đầu đọc SSE và xử lý event
+        this._sseReader = r.body.getReader();
         (async () => {
             try {
-                const reader = r.body.getReader();
-                let buf = '';
                 while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break; // server đóng SSE
-                    buf += Buffer.from(value).toString('utf8');
+                    const { value, done } = await this._sseReader.read();
+                    if (done) break;
+                    this._buf += Buffer.from(value).toString('utf8');
 
-                    // tách theo \n\n thành event
+                    // Tách event theo \n\n
                     let idx;
-                    while ((idx = buf.indexOf('\n\n')) >= 0) {
-                        const raw = buf.slice(0, idx);
-                        buf = buf.slice(idx + 2);
+                    while ((idx = this._buf.indexOf('\n\n')) >= 0) {
+                        const raw = this._buf.slice(0, idx);
+                        this._buf = this._buf.slice(idx + 2);
 
+                        // Parse kiểu:
+                        // event: <type>
+                        // data: <payload>
                         let ev = '', data = '';
                         for (const line of raw.split('\n')) {
                             const s = line.trim();
@@ -85,44 +98,111 @@ class MCPHttpClient {
                             else if (s.startsWith('data:')) data += (data ? '\n' : '') + s.slice(5).trim();
                         }
 
+                        // 1) Sự kiện cung cấp endpoint session
                         if (ev === 'endpoint' && data) {
-                            // path hoặc full URL
                             this.sessionPath = data.startsWith('http')
                                 ? data.replace(this.base, '')
                                 : (data.startsWith('/') ? data : `/${data}`);
-                            // báo cho bên gọi connect() là có endpoint rồi
                             if (resolveEndpoint) { resolveEndpoint(this.sessionPath); resolveEndpoint = null; }
+                            continue;
                         }
 
-                        // (tuỳ bạn: handle các event khác nếu server có gửi)
+                        // 2) Sự kiện chứa JSON-RPC response
+                        if (data) {
+                            // Có thể là JSON thuần hoặc NDJSON / nhiều object; ta cố parse linh hoạt
+                            const candidates = data.split('\n').map(s => s.trim()).filter(Boolean);
+                            for (const cand of candidates) {
+                                const obj = this._tryJSON(cand) || this._tryExtractJSON(cand);
+                                if (!obj || obj.jsonrpc !== '2.0' || (obj.id === undefined && obj.result === undefined && obj.error === undefined)) {
+                                    continue;
+                                }
+                                // Nếu có id khớp pending → resolve/reject tương ứng
+                                const pending = this._pending.get(obj.id);
+                                if (pending) {
+                                    this._pending.delete(obj.id);
+                                    clearTimeout(pending.timer);
+                                    if (obj.error) {
+                                        pending.reject(new Error(obj.error.message || 'MCP error'));
+                                    } else {
+                                        pending.resolve(obj.result);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                // nếu SSE kết thúc mà chưa từng có endpoint
+
+                // SSE đóng: fail mọi pending
+                for (const [id, p] of this._pending) {
+                    clearTimeout(p.timer);
+                    p.reject(new Error('SSE closed'));
+                }
+                this._pending.clear();
                 if (!this.sessionPath && rejectEndpoint) rejectEndpoint(new Error('SSE closed before endpoint'));
             } catch (e) {
+                // Lỗi đọc: fail mọi pending
+                for (const [id, p] of this._pending) {
+                    clearTimeout(p.timer);
+                    p.reject(e);
+                }
+                this._pending.clear();
                 if (rejectEndpoint) rejectEndpoint(e);
             }
         })();
 
-        // chờ đến khi có endpoint (nhưng vẫn giữ SSE mở)
+        // Trả về sau khi có endpoint (vẫn giữ SSE mở để nhận phản hồi RPC)
         return this._endpointReady;
     }
 
-    async rpc(method, params = {}, id = Date.now()) {
-        if (!this.sessionPath) {
-            // kết nối (và chờ endpoint) nếu chưa có
-            await this.connect();
+    _tryJSON(text) {
+        try { return JSON.parse(text); } catch { return null; }
+    }
+
+    _tryExtractJSON(text) {
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first >= 0 && last > first) {
+            try { return JSON.parse(text.slice(first, last + 1)); } catch { /* ignore */ }
         }
+        return null;
+    }
+
+    // Gửi POST và chờ phản hồi qua SSE (khớp id)
+    async rpc(method, params = {}, id = Date.now()) {
+        if (!this.sessionPath) await this.connect();
         const url = this.sessionPath.startsWith('http') ? this.sessionPath : `${this.base}${this.sessionPath}`;
+
+        // Tạo promise chờ SSE trả về id này
+        const waitPromise = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this._pending.delete(id);
+                reject(new Error(`MCP RPC timeout for id ${id}`));
+            }, this._defaultTimeoutMs);
+            this._pending.set(id, { resolve, reject, timer });
+        });
+
+        // Gửi POST (không kỳ vọng JSON trả về ở HTTP body)
+        const headers = { ...this.headers, 'content-type': 'application/json' };
+        if (this.cookie) headers['cookie'] = this.cookie;
+
         const r = await fetch(url, {
             method: 'POST',
-            headers: { ...this.headers, 'content-type': 'application/json' },
+            headers,
             body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         });
-        if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
-        const data = await r.json();
-        if (data.error) throw new Error(data.error.message || 'MCP error');
-        return data.result;
+
+        // Một số server trả 200/202 kèm text "ACK..." → ta không parse JSON ở đây.
+        if (!r.ok) {
+            // cố đọc body để gợi ý lỗi
+            const t = await r.text().catch(() => '');
+            // dọn pending id vì không có phản hồi SSE hợp lệ
+            const p = this._pending.get(id);
+            if (p) { clearTimeout(p.timer); this._pending.delete(id); }
+            throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
+        }
+
+        // Chờ SSE resolve id
+        return waitPromise;
     }
 
     initialize() {
@@ -134,19 +214,26 @@ class MCPHttpClient {
     }
 
     async listTools() {
-        const res = await this.rpc('tools/list', {});
+        const res = await this.rpc('tools/list', {}, /*id*/ Date.now() + 1);
         return res.tools || [];
     }
 
     toolsCall(name, args) {
-        return this.rpc('tools/call', { name, arguments: args });
+        return this.rpc('tools/call', { name, arguments: args }, /*id*/ Date.now() + 2);
     }
 
     close() {
         try { this.controller?.abort(); } catch { }
         this.controller = null;
         this.sessionPath = null;
+        this.cookie = null;
         this._endpointReady = null;
+
+        for (const [, p] of this._pending) {
+            clearTimeout(p.timer);
+            p.reject(new Error('Client closed'));
+        }
+        this._pending.clear();
     }
 }
 
@@ -196,7 +283,13 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
                 const { id, function: fn } = tc;
                 const name = fn?.name;
                 let args = {};
-                try { args = fn?.arguments ? JSON.parse(fn.arguments) : {}; } catch { }
+                try {
+                    if (typeof fn?.arguments === 'string') {
+                        args = JSON.parse(fn.arguments);
+                    } else if (fn?.arguments && typeof fn.arguments === 'object') {
+                        args = fn.arguments;
+                    }
+                } catch { }
 
                 let toolOutput = '';
                 try {
