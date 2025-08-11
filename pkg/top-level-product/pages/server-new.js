@@ -33,6 +33,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// CORS configuration with more permissive settings
+app.use(cors({
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true
+}));
+
 // Khởi tạo OpenAI client
 const openai = new OpenAI({
   baseURL: "http://192.168.10.32:11434/v1",
