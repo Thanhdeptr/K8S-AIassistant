@@ -39,8 +39,8 @@ export default {
       this.isLoading = true;
 
       try {
-        // const res = await fetch("https://da10dc21d1f8.ngrok-free.app/api/chat", {
-        const res = await fetch("https://192.168.10.18:8055/api/chat", {
+        const res = await fetch("https://da10dc21d1f8.ngrok-free.app/api/chat", {
+          // const res = await fetch("https://192.168.10.18:8055/api/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
