@@ -29,6 +29,7 @@
 
         <!-- Formatted markdown table display -->
         <div v-if="msg.isTable" class="table-container">
+          <div v-if="msg.preamble" class="message-text table-preamble">{{ msg.preamble }}</div>
           <div class="table-header">
             <span class="table-title">📋 Bảng dữ liệu</span>
             <span class="table-count">{{ msg.table?.rows?.length || 0 }} dòng</span>
@@ -47,6 +48,7 @@
               </tbody>
             </table>
           </div>
+          <div v-if="msg.afterText" class="message-text table-after">{{ msg.afterText }}</div>
         </div>
       </div>
     </div>
@@ -119,12 +121,14 @@ export default {
             });
           } else if (this.isMarkdownTable(reply)) {
             // Parse generic Markdown table (e.g., list of Pods)
-            const table = this.parseMarkdownTable(reply);
+            const { table, preamble, afterText } = this.parseMarkdownTable(reply);
             this.messages.push({
               role: "bot",
               text: reply, // giữ nguyên nội dung gốc cho context hội thoại
               isTable: true,
-              table
+              table,
+              preamble,
+              afterText
             });
           } else {
             this.messages.push({ role: "bot", text: reply });
@@ -166,6 +170,8 @@ export default {
     // Parse generic Markdown table into headers and rows
     parseMarkdownTable(text) {
       const result = { headers: [], rows: [] };
+      let preamble = '';
+      let afterText = '';
       if (!text || typeof text !== 'string') return result;
 
       const lines = text.split('\n')
@@ -180,7 +186,12 @@ export default {
           break;
         }
       }
-      if (headerIdx === -1) return result;
+      if (headerIdx === -1) return { table: result, preamble, afterText };
+
+      // Everything before header becomes preamble
+      if (headerIdx > 0) {
+        preamble = lines.slice(0, headerIdx).join('\n');
+      }
 
       const splitRow = (line) => {
         // Remove leading/trailing pipes and split
@@ -191,9 +202,10 @@ export default {
       result.headers = splitRow(lines[headerIdx]);
 
       // Rows start after the separator
+      let lastRowLine = headerIdx + 1;
       for (let i = headerIdx + 2; i < lines.length; i++) {
         const line = lines[i];
-        if (!line.includes('|')) break; // stop when table ends
+        if (!line.includes('|')) { lastRowLine = i - 1; break; } // stop when table ends
         if (/^\|?\s*-+/.test(line)) continue; // skip additional separators
 
         const cells = splitRow(line);
@@ -203,9 +215,15 @@ export default {
           row.push(cells[c] !== undefined ? cells[c] : '');
         }
         result.rows.push(row);
+        lastRowLine = i;
       }
 
-      return result;
+      // Anything after the last table row
+      if (lastRowLine + 1 < lines.length) {
+        afterText = lines.slice(lastRowLine + 1).join('\n');
+      }
+
+      return { table: result, preamble, afterText };
     },
 
     // Parse Kubernetes logs from table format
