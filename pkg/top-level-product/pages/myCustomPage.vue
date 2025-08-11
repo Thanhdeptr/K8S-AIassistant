@@ -93,7 +93,7 @@ export default {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            model: "llama3.2:1b",
+            model: "gpt-oss:20b",
             messages: this.messages.map(msg => ({
               role: msg.role === "user" ? "user" : "assistant",
               content: msg.text
@@ -101,20 +101,6 @@ export default {
             stream: false
           }),
           signal: this.abortController.signal
-        });
-          // const res = await fetch("https://192.168.10.18:8055/api/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "llama3.2:1b",
-            messages: this.messages.map(msg => ({
-              role: msg.role === "user" ? "user" : "assistant",
-              content: msg.text
-            })),
-            stream: false
-          })
         });
 
         if (!res.ok) {
