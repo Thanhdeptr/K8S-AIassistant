@@ -3,7 +3,7 @@
     <div class="chat-header">🤖 <span>AI Assistant</span></div>
 
     <div class="chat-messages">
-      <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
+      <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role, { 'is-table': msg.isTable }]">
         <!-- Regular text message -->
         <div v-if="!msg.isLogs && !msg.isTable" class="message-text">
           {{ msg.text }}
@@ -11,6 +11,10 @@
         
         <!-- Formatted logs display -->
         <div v-if="msg.isLogs" class="logs-container">
+          <div class="logs-header">
+            <span class="logs-title">📋 Kubernetes Logs</span>
+            <span class="logs-count">{{ msg.logs.length }} entries</span>
+          </div>
           <div class="logs-content">
             <div v-for="(log, logIndex) in msg.logs" :key="logIndex" class="log-entry">
               <div class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</div>
@@ -352,6 +356,14 @@ export default {
   border-bottom-left-radius: 2px;
 }
 
+/* Make table messages span full width */
+.message.is-table {
+  max-width: 100%;
+  width: 100%;
+  padding: 0; /* container controls padding */
+  background: transparent; /* use table-container visuals */
+}
+
 .message-text {
   line-height: 1.4;
   white-space: pre-wrap; /* giữ \n và khoảng trắng để content không dính một hàng */
@@ -364,6 +376,28 @@ export default {
   border-radius: 8px;
   overflow: hidden;
   margin-top: 8px;
+}
+
+.logs-header {
+  background: #e9ecef;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.logs-title {
+  font-weight: 600;
+  color: #495057;
+}
+
+.logs-count {
+  font-size: 12px;
+  color: #6c757d;
+  background: #fff;
+  padding: 2px 8px;
+  border-radius: 12px;
 }
 
 .logs-content {
@@ -445,10 +479,14 @@ export default {
   border-radius: 8px;
   overflow: hidden;
   margin-top: 8px;
+  width: 100%;
 }
+
+/* Removed header elements per request */
 
 .table-content {
   overflow-x: auto;
+  width: 100%;
 }
 
 .markdown-table {
