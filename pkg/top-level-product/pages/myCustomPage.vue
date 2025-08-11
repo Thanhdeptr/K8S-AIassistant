@@ -51,8 +51,11 @@
 
     <div class="chat-input">
       <input v-model="userInput" type="text" placeholder="Nhập tin nhắn..." @keyup.enter="sendMessage" />
-      <button @click="sendMessage" :disabled="isLoading">
-        {{ isLoading ? "..." : "Gửi" }}
+      <button v-if="!isLoading" @click="sendMessage">
+        Gửi
+      </button>
+      <button v-if="isLoading" @click="stopRequest" class="stop-btn">
+        ⏹️ Dừng
       </button>
     </div>
   </div>
@@ -68,6 +71,7 @@ export default {
         { role: "bot", text: "Xin chào! Tôi có thể giúp gì cho bạn hôm nay?" }
       ],
       isLoading: false,
+      abortController: null,
     };
   },
   methods: {
@@ -78,9 +82,26 @@ export default {
       this.messages.push({ role: "user", text });
       this.userInput = "";
       this.isLoading = true;
+      
+      // Tạo AbortController để có thể cancel request
+      this.abortController = new AbortController();
 
       try {
         const res = await fetch("https://da10dc21d1f8.ngrok-free.app/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "llama3.2:1b",
+            messages: this.messages.map(msg => ({
+              role: msg.role === "user" ? "user" : "assistant",
+              content: msg.text
+            })),
+            stream: false
+          }),
+          signal: this.abortController.signal
+        });
           // const res = await fetch("https://192.168.10.18:8055/api/chat", {
           method: "POST",
           headers: {
@@ -135,9 +156,15 @@ export default {
 
       } catch (err) {
         console.error("Fetch error:", err);
-        this.messages.push({ role: "bot", text: `❌ Lỗi kết nối: ${err.message}` });
+        // Kiểm tra xem có phải do cancel không
+        if (err.name === 'AbortError') {
+          this.messages.push({ role: "bot", text: "⏹️ Đã dừng yêu cầu." });
+        } else {
+          this.messages.push({ role: "bot", text: `❌ Lỗi kết nối: ${err.message}` });
+        }
       } finally {
         this.isLoading = false;
+        this.abortController = null;
       }
     },
 
@@ -289,6 +316,13 @@ export default {
         'DEBUG': 'level-debug'
       };
       return levelMap[level] || 'level-default';
+    },
+
+    // Dừng request đang chạy
+    stopRequest() {
+      if (this.abortController) {
+        this.abortController.abort();
+      }
     }
   }
 };
@@ -536,6 +570,14 @@ export default {
 .chat-input button:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
+}
+
+.stop-btn {
+  background-color: #006cff !important;
+}
+
+.stop-btn:hover {
+  background-color: #0056b3 !important;
 }
 
 /* Responsive design */
