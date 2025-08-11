@@ -11,10 +11,6 @@
         
         <!-- Formatted logs display -->
         <div v-if="msg.isLogs" class="logs-container">
-          <div class="logs-header">
-            <span class="logs-title">📋 Kubernetes Logs</span>
-            <span class="logs-count">{{ msg.logs.length }} entries</span>
-          </div>
           <div class="logs-content">
             <div v-for="(log, logIndex) in msg.logs" :key="logIndex" class="log-entry">
               <div class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</div>
@@ -30,10 +26,6 @@
         <!-- Formatted markdown table display -->
         <div v-if="msg.isTable" class="table-container">
           <div v-if="msg.preamble" class="message-text table-preamble">{{ msg.preamble }}</div>
-          <div class="table-header">
-            <span class="table-title">📋 Bảng dữ liệu</span>
-            <span class="table-count">{{ msg.table?.rows?.length || 0 }} dòng</span>
-          </div>
           <div class="table-content">
             <table class="markdown-table">
               <thead>
@@ -374,28 +366,6 @@ export default {
   margin-top: 8px;
 }
 
-.logs-header {
-  background: #e9ecef;
-  padding: 8px 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #dee2e6;
-}
-
-.logs-title {
-  font-weight: 600;
-  color: #495057;
-}
-
-.logs-count {
-  font-size: 12px;
-  color: #6c757d;
-  background: #fff;
-  padding: 2px 8px;
-  border-radius: 12px;
-}
-
 .logs-content {
   max-height: 300px;
   overflow-y: auto;
@@ -475,28 +445,6 @@ export default {
   border-radius: 8px;
   overflow: hidden;
   margin-top: 8px;
-}
-
-.table-header {
-  background: #e9ecef;
-  padding: 8px 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #dee2e6;
-}
-
-.table-title {
-  font-weight: 600;
-  color: #495057;
-}
-
-.table-count {
-  font-size: 12px;
-  color: #6c757d;
-  background: #fff;
-  padding: 2px 8px;
-  border-radius: 12px;
 }
 
 .table-content {
