@@ -61,8 +61,8 @@ app.post('/api/chat', async (req, res) => {
             tools: [
                 {
                     type: "mcp",
-                    server_label: "deepwiki",
-                    server_url: "https://mcp.deepwiki.com/mcp",
+                    server_label: "kubemcp",
+                    server_url: "http://192.168.10.18:3000/sse",
                     require_approval: "never",
                 },
             ],
