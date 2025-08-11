@@ -375,8 +375,8 @@ app.get('/api/mcp/status', (req, res) => {
   });
 });
 
-app.listen(8055, () => {
-  console.log("✅ Backend với OpenAI Structured Outputs + MCP Server remote chạy tại http://localhost:8055");
+app.listen(8055, '0.0.0.0', () => {
+  console.log("✅ Backend với OpenAI Structured Outputs + MCP Server remote chạy tại http://0.0.0.0:8055");
   console.log("🌐 MCP Server URL: http://192.168.10.18:3000");
   console.log("🔌 MCP SSE Endpoint: /sse");
   console.log("📬 MCP Messages Endpoint: /messages");
