@@ -35,7 +35,7 @@ app.use(express.json());
 
 // Khởi tạo OpenAI client
 const openai = new OpenAI({
-baseURL: "http://192.168.10.32:11434/",
+  baseURL: "http://192.168.10.32:11434/v1",
   apiKey: "ollama"
 });
 

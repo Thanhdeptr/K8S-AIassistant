@@ -3,22 +3,13 @@
     <div class="chat-header">🤖 <span>AI Assistant</span></div>
 
     <div class="chat-messages">
-      <div
-        v-for="(msg, index) in messages"
-        :key="index"
-        :class="['message', msg.role]"
-      >
+      <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
         {{ msg.text }}
       </div>
     </div>
 
     <div class="chat-input">
-      <input
-        v-model="userInput"
-        type="text"
-        placeholder="Nhập tin nhắn..."
-        @keyup.enter="sendMessage"
-      />
+      <input v-model="userInput" type="text" placeholder="Nhập tin nhắn..." @keyup.enter="sendMessage" />
       <button @click="sendMessage" :disabled="isLoading">
         {{ isLoading ? "..." : "Gửi" }}
       </button>
@@ -48,8 +39,9 @@ export default {
       this.isLoading = true;
 
       try {
-        const res = await fetch("https://da10dc21d1f8.ngrok-free.app/api/chat", {
-          method: "POST",   
+        // const res = await fetch("https://da10dc21d1f8.ngrok-free.app/api/chat", {
+        const res = await fetch("http://localhost:8055/api/chat", {
+          method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
