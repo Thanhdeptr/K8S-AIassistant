@@ -5,7 +5,7 @@
     <div class="chat-messages">
       <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
         <!-- Regular text message -->
-        <div v-if="!msg.isLogs" class="message-text">
+        <div v-if="!msg.isLogs && !msg.isTable" class="message-text">
           {{ msg.text }}
         </div>
         
@@ -24,6 +24,28 @@
               <div class="log-category">{{ log.category }}</div>
               <div class="log-message">{{ log.message }}</div>
             </div>
+          </div>
+        </div>
+
+        <!-- Formatted markdown table display -->
+        <div v-if="msg.isTable" class="table-container">
+          <div class="table-header">
+            <span class="table-title">📋 Bảng dữ liệu</span>
+            <span class="table-count">{{ msg.table?.rows?.length || 0 }} dòng</span>
+          </div>
+          <div class="table-content">
+            <table class="markdown-table">
+              <thead>
+                <tr>
+                  <th v-for="(h, i) in msg.table.headers" :key="i">{{ h }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, rIdx) in msg.table.rows" :key="rIdx">
+                  <td v-for="(cell, cIdx) in row" :key="cIdx">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -85,7 +107,7 @@ export default {
 
         if (data.message && data.message.content) {
           const reply = data.message.content.trim();
-          
+
           // Check if the reply contains Kubernetes logs (table format)
           if (this.isKubernetesLogs(reply)) {
             const formattedLogs = this.parseKubernetesLogs(reply);
@@ -94,6 +116,15 @@ export default {
               text: "Đây là logs từ Kubernetes:", 
               isLogs: true,
               logs: formattedLogs
+            });
+          } else if (this.isMarkdownTable(reply)) {
+            // Parse generic Markdown table (e.g., list of Pods)
+            const table = this.parseMarkdownTable(reply);
+            this.messages.push({
+              role: "bot",
+              text: reply, // giữ nguyên nội dung gốc cho context hội thoại
+              isTable: true,
+              table
             });
           } else {
             this.messages.push({ role: "bot", text: reply });
@@ -114,6 +145,67 @@ export default {
     isKubernetesLogs(text) {
       return text.includes('| Timestamp | Level | Category | Message |') || 
              text.includes('Mười dòng cuối cùng của log container');
+    },
+
+    // Check if the response looks like a generic Markdown table
+    isMarkdownTable(text) {
+      if (!text || typeof text !== 'string') return false;
+      const lines = text.split('\n').map(l => l.trim());
+      // Must have at least 3 lines: header, separator, one row
+      // Header line with at least 2 pipes and a separator line with dashes
+      for (let i = 0; i < lines.length - 2; i++) {
+        const header = lines[i];
+        const separator = lines[i + 1];
+        if (header.includes('|') && separator.includes('|') && /-\s*-/.test(separator)) {
+          return true;
+        }
+      }
+      return false;
+    },
+
+    // Parse generic Markdown table into headers and rows
+    parseMarkdownTable(text) {
+      const result = { headers: [], rows: [] };
+      if (!text || typeof text !== 'string') return result;
+
+      const lines = text.split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+
+      // Find header + separator lines
+      let headerIdx = -1;
+      for (let i = 0; i < lines.length - 1; i++) {
+        if (lines[i].includes('|') && lines[i + 1].includes('|') && /-\s*-/.test(lines[i + 1])) {
+          headerIdx = i;
+          break;
+        }
+      }
+      if (headerIdx === -1) return result;
+
+      const splitRow = (line) => {
+        // Remove leading/trailing pipes and split
+        const trimmed = line.replace(/^\|/, '').replace(/\|$/, '');
+        return trimmed.split('|').map(s => s.trim()).filter(s => s.length > 0);
+      };
+
+      result.headers = splitRow(lines[headerIdx]);
+
+      // Rows start after the separator
+      for (let i = headerIdx + 2; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.includes('|')) break; // stop when table ends
+        if (/^\|?\s*-+/.test(line)) continue; // skip additional separators
+
+        const cells = splitRow(line);
+        // Normalize cell count to headers length
+        const row = [];
+        for (let c = 0; c < result.headers.length; c++) {
+          row.push(cells[c] !== undefined ? cells[c] : '');
+        }
+        result.rows.push(row);
+      }
+
+      return result;
     },
 
     // Parse Kubernetes logs from table format
@@ -252,6 +344,7 @@ export default {
 
 .message-text {
   line-height: 1.4;
+  white-space: pre-wrap; /* giữ \n và khoảng trắng để content không dính một hàng */
 }
 
 /* Logs styling */
@@ -355,6 +448,59 @@ export default {
   color: #212529;
   line-height: 1.3;
   word-break: break-word;
+}
+
+/* Markdown table styling */
+.table-container {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.table-header {
+  background: #e9ecef;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.table-title {
+  font-weight: 600;
+  color: #495057;
+}
+
+.table-count {
+  font-size: 12px;
+  color: #6c757d;
+  background: #fff;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.table-content {
+  overflow-x: auto;
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-table th,
+.markdown-table td {
+  border: 1px solid #f1f3f4;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.markdown-table thead th {
+  background: #f6f8fa;
+  font-weight: 600;
 }
 
 .chat-input {
