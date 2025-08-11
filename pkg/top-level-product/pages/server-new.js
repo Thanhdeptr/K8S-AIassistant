@@ -35,8 +35,8 @@ app.use(express.json());
 
 // Khởi tạo OpenAI client
 const openai = new OpenAI({
-  baseURL: "http://192.168.10.32:11434/v1",
-  apiKey: "ollama"
+baseURL: "https://az-aiai.openai.azure.com/",
+  apiKey: "6UQTCPSQcRPOMmvb5HsWhuTs6fKZawAinjV7jhfdyl4xxBeMZHLfJQQJ99BGACqBBLyXJ3w3AAABACOGlZPT"
 });
 
 // MCP Server wrapper - Kết nối với MCP server remote
@@ -188,7 +188,7 @@ Analyze the user input and extract the command information.`;
       max_tokens: 500,
       temperature: 0.1, // Giảm nhiễu để có kết quả nhất quán
     });
-
+console.log(JSON.stringify(completion));
     // Với Zod structured output, response đã được parse và validate tự động
     const analysis = completion.choices[0].message.parsed;
     console.log('✅ Parsed Analysis:', JSON.stringify(analysis, null, 2));
