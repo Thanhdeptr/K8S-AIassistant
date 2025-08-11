@@ -69,7 +69,9 @@ app.post('/api/chat', async (req, res) => {
             // max_tokens: 1000,
             // temperature: 0.7,
         });
-
+        console.log("--------------------------------\n");
+        console.log(JSON.stringify(completion));
+        console.log("--------------------------------\n");
         const reply = completion.choices[0]?.message?.content;
         return res.json({
             message: {
