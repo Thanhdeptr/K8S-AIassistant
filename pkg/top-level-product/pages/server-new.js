@@ -188,7 +188,7 @@ Analyze the user input and extract the command information.`;
       max_tokens: 500,
       temperature: 0.1, // Giảm nhiễu để có kết quả nhất quán
     });
-console.log(JSON.stringify(completion));
+
     // Với Zod structured output, response đã được parse và validate tự động
     const analysis = completion.choices[0].message.parsed;
     console.log('✅ Parsed Analysis:', JSON.stringify(analysis, null, 2));
