@@ -37,16 +37,19 @@ const openai = new OpenAI({
 });
 
 // ====== MCP HTTP + SSE CLIENT ======
+// ====== MCP HTTP + SSE CLIENT ======
 class MCPHttpClient {
     constructor(base, headers = {}) {
-        this.base = base.replace(/\/+$/, ''); // normalize
+        this.base = base.replace(/\/+$/, '');
         this.headers = headers;
-        this.sessionPath = null;              // e.g. "/messages?sessionId=UUID"
-        this.controller = null;
+        this.sessionPath = null;     // e.g. "/messages?sessionId=UUID"
+        this.controller = null;      // AbortController cho SSE
+        this._endpointReady = null;  // Promise resolve khi có endpoint
     }
 
     async connect() {
-        // Mở SSE, đọc đến khi gặp event: endpoint → data: /messages?sessionId=...
+        if (this.sessionPath) return this.sessionPath; // đã có session
+
         this.controller = new AbortController();
         const r = await fetch(`${this.base}/sse`, {
             method: 'GET',
@@ -55,46 +58,65 @@ class MCPHttpClient {
         });
         if (!r.ok || !r.body) throw new Error(`SSE HTTP ${r.status}`);
 
-        const reader = r.body.getReader();
-        let buf = '';
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) throw new Error('SSE closed before endpoint');
-            buf += Buffer.from(value).toString('utf8');
+        // Tạo promise chờ endpoint
+        let resolveEndpoint, rejectEndpoint;
+        this._endpointReady = new Promise((res, rej) => { resolveEndpoint = res; rejectEndpoint = rej; });
 
-            // tách event theo \n\n
-            let idx;
-            while ((idx = buf.indexOf('\n\n')) >= 0) {
-                const raw = buf.slice(0, idx);
-                buf = buf.slice(idx + 2);
+        // Đọc SSE ở nền, KHÔNG đóng/abort sau khi nhận endpoint
+        (async () => {
+            try {
+                const reader = r.body.getReader();
+                let buf = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break; // server đóng SSE
+                    buf += Buffer.from(value).toString('utf8');
 
-                let ev = '', data = '';
-                for (const line of raw.split('\n')) {
-                    const s = line.trim();
-                    if (s.startsWith('event:')) ev = s.slice(6).trim();
-                    else if (s.startsWith('data:')) data += (data ? '\n' : '') + s.slice(5).trim();
+                    // tách theo \n\n thành event
+                    let idx;
+                    while ((idx = buf.indexOf('\n\n')) >= 0) {
+                        const raw = buf.slice(0, idx);
+                        buf = buf.slice(idx + 2);
+
+                        let ev = '', data = '';
+                        for (const line of raw.split('\n')) {
+                            const s = line.trim();
+                            if (s.startsWith('event:')) ev = s.slice(6).trim();
+                            else if (s.startsWith('data:')) data += (data ? '\n' : '') + s.slice(5).trim();
+                        }
+
+                        if (ev === 'endpoint' && data) {
+                            // path hoặc full URL
+                            this.sessionPath = data.startsWith('http')
+                                ? data.replace(this.base, '')
+                                : (data.startsWith('/') ? data : `/${data}`);
+                            // báo cho bên gọi connect() là có endpoint rồi
+                            if (resolveEndpoint) { resolveEndpoint(this.sessionPath); resolveEndpoint = null; }
+                        }
+
+                        // (tuỳ bạn: handle các event khác nếu server có gửi)
+                    }
                 }
-                if (ev === 'endpoint' && data) {
-                    // data có thể là path "/messages?sessionId=..." hoặc full URL
-                    this.sessionPath = data.startsWith('http')
-                        ? data.replace(this.base, '')
-                        : (data.startsWith('/') ? data : `/${data}`);
-                    // Đủ thông tin rồi, đóng SSE (nếu muốn giữ notify thì đừng abort)
-                    try { this.controller.abort(); } catch { }
-                    return this.sessionPath;
-                }
+                // nếu SSE kết thúc mà chưa từng có endpoint
+                if (!this.sessionPath && rejectEndpoint) rejectEndpoint(new Error('SSE closed before endpoint'));
+            } catch (e) {
+                if (rejectEndpoint) rejectEndpoint(e);
             }
-        }
+        })();
+
+        // chờ đến khi có endpoint (nhưng vẫn giữ SSE mở)
+        return this._endpointReady;
     }
 
     async rpc(method, params = {}, id = Date.now()) {
-        if (!this.sessionPath) throw new Error('MCP not connected (missing sessionPath)');
-        const url = this.sessionPath.startsWith('http')
-            ? this.sessionPath
-            : `${this.base}${this.sessionPath}`;
+        if (!this.sessionPath) {
+            // kết nối (và chờ endpoint) nếu chưa có
+            await this.connect();
+        }
+        const url = this.sessionPath.startsWith('http') ? this.sessionPath : `${this.base}${this.sessionPath}`;
         const r = await fetch(url, {
             method: 'POST',
-            headers: { ...MCP_HEADERS },
+            headers: { ...this.headers, 'content-type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         });
         if (!r.ok) throw new Error(`MCP HTTP ${r.status}`);
@@ -105,7 +127,7 @@ class MCPHttpClient {
 
     initialize() {
         return this.rpc('initialize', {
-            protocolVersion: '2025-06-18', // hoặc theo server
+            protocolVersion: '2025-06-18',
             capabilities: { tools: {}, resources: {}, prompts: {} },
             clientInfo: { name: 'ollama-mcp-http', version: '0.1.0' },
         });
@@ -119,7 +141,15 @@ class MCPHttpClient {
     toolsCall(name, args) {
         return this.rpc('tools/call', { name, arguments: args });
     }
+
+    close() {
+        try { this.controller?.abort(); } catch { }
+        this.controller = null;
+        this.sessionPath = null;
+        this._endpointReady = null;
+    }
 }
+
 
 // ====== CHUYỂN schema MCP -> tools OpenAI-compatible (Ollama) ======
 function mapMcpToolsToOpenAITools(mcpTools) {
