@@ -270,6 +270,12 @@ class MCPHttpClient {
                     // dọn pending id vì không có phản hồi SSE hợp lệ
                     const p = this._pending.get(id);
                     if (p) { clearTimeout(p.timer); this._pending.delete(id); }
+                    
+                    // Check if it's a session not found error
+                    if (t.includes('Session not found') || t.includes('session not found')) {
+                        throw new Error('Session not found');
+                    }
+                    
                     throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
                 }
 
@@ -284,12 +290,14 @@ class MCPHttpClient {
                 // Nếu là lỗi session, thử reconnect
                 if (error.message.includes('SSE connection not established') || 
                     error.message.includes('SSE closed') ||
-                    error.message.includes('timeout')) {
+                    error.message.includes('timeout') ||
+                    error.message.includes('Session not found')) {
                     
                     if (attempt < this._maxReconnectAttempts) {
-                        console.log(`🔄 Attempting reconnect (${attempt + 1}/${this._maxReconnectAttempts})...`);
+                        console.log(`🔄 Session error detected, attempting reconnect (${attempt + 1}/${this._maxReconnectAttempts})...`);
                         this.connectionState = 'reconnecting';
                         this.sessionPath = null; // Reset để force reconnect
+                        this.sessionId = null; // Reset session ID vì session cũ đã bị xóa
                         
                         // Delay trước khi thử lại
                         await new Promise(resolve => setTimeout(resolve, this._reconnectDelay * (attempt + 1)));
