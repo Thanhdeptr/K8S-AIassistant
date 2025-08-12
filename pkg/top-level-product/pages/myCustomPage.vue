@@ -158,12 +158,12 @@ export default {
              text.includes('Mười dòng cuối cùng của log container');
     },
 
-    // Check if the response looks like a generic Markdown table
+    // Check if the response looks like a generic Markdown table or plain text table
     isMarkdownTable(text) {
       if (!text || typeof text !== 'string') return false;
       const lines = text.split('\n').map(l => l.trim());
-      // Must have at least 3 lines: header, separator, one row
-      // Header line with at least 2 pipes and a separator line with dashes
+      
+      // Check for markdown table (with pipes and dashes)
       for (let i = 0; i < lines.length - 2; i++) {
         const header = lines[i];
         const separator = lines[i + 1];
@@ -171,10 +171,23 @@ export default {
           return true;
         }
       }
+      
+      // Check for plain text table (space-separated columns)
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i];
+        if (line.includes('NAMESPACE') && line.includes('NAME') && line.includes('STATUS')) {
+          // Check if next line has similar structure
+          const nextLine = lines[i + 1];
+          if (nextLine && nextLine.split(/\s+/).length >= 3) {
+            return true;
+          }
+        }
+      }
+      
       return false;
     },
 
-    // Parse generic Markdown table into headers and rows
+    // Parse generic Markdown table or plain text table into headers and rows
     parseMarkdownTable(text) {
       const result = { headers: [], rows: [] };
       let preamble = '';
@@ -185,7 +198,7 @@ export default {
         .map(l => l.trim())
         .filter(l => l.length > 0);
 
-      // Find header + separator lines
+      // Check if it's a markdown table (with pipes)
       let headerIdx = -1;
       for (let i = 0; i < lines.length - 1; i++) {
         if (lines[i].includes('|') && lines[i + 1].includes('|') && /-\s*-/.test(lines[i + 1])) {
@@ -193,41 +206,90 @@ export default {
           break;
         }
       }
-      if (headerIdx === -1) return { table: result, preamble, afterText };
 
-      // Everything before header becomes preamble
-      if (headerIdx > 0) {
-        preamble = lines.slice(0, headerIdx).join('\n');
-      }
-
-      const splitRow = (line) => {
-        // Remove leading/trailing pipes and split
-        const trimmed = line.replace(/^\|/, '').replace(/\|$/, '');
-        return trimmed.split('|').map(s => s.trim()).filter(s => s.length > 0);
-      };
-
-      result.headers = splitRow(lines[headerIdx]);
-
-      // Rows start after the separator
-      let lastRowLine = headerIdx + 1;
-      for (let i = headerIdx + 2; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.includes('|')) { lastRowLine = i - 1; break; } // stop when table ends
-        if (/^\|?\s*-+/.test(line)) continue; // skip additional separators
-
-        const cells = splitRow(line);
-        // Normalize cell count to headers length
-        const row = [];
-        for (let c = 0; c < result.headers.length; c++) {
-          row.push(cells[c] !== undefined ? cells[c] : '');
+      // If markdown table found, parse it
+      if (headerIdx !== -1) {
+        // Everything before header becomes preamble
+        if (headerIdx > 0) {
+          preamble = lines.slice(0, headerIdx).join('\n');
         }
-        result.rows.push(row);
-        lastRowLine = i;
-      }
 
-      // Anything after the last table row
-      if (lastRowLine + 1 < lines.length) {
-        afterText = lines.slice(lastRowLine + 1).join('\n');
+        const splitRow = (line) => {
+          // Remove leading/trailing pipes and split
+          const trimmed = line.replace(/^\|/, '').replace(/\|$/, '');
+          return trimmed.split('|').map(s => s.trim()).filter(s => s.length > 0);
+        };
+
+        result.headers = splitRow(lines[headerIdx]);
+
+        // Rows start after the separator
+        let lastRowLine = headerIdx + 1;
+        for (let i = headerIdx + 2; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line.includes('|')) { lastRowLine = i - 1; break; } // stop when table ends
+          if (/^\|?\s*-+/.test(line)) continue; // skip additional separators
+
+          const cells = splitRow(line);
+          // Normalize cell count to headers length
+          const row = [];
+          for (let c = 0; c < result.headers.length; c++) {
+            row.push(cells[c] !== undefined ? cells[c] : '');
+          }
+          result.rows.push(row);
+          lastRowLine = i;
+        }
+
+        // Anything after the last table row
+        if (lastRowLine + 1 < lines.length) {
+          afterText = lines.slice(lastRowLine + 1).join('\n');
+        }
+      } else {
+        // Check if it's a plain text table (space-separated)
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.includes('NAMESPACE') && line.includes('NAME') && line.includes('STATUS')) {
+            headerIdx = i;
+            break;
+          }
+        }
+
+        if (headerIdx !== -1) {
+          // Everything before header becomes preamble
+          if (headerIdx > 0) {
+            preamble = lines.slice(0, headerIdx).join('\n');
+          }
+
+          // Parse plain text table headers
+          const headerLine = lines[headerIdx];
+          const headerParts = headerLine.split(/\s+/);
+          result.headers = headerParts.filter(part => part.length > 0);
+
+          // Parse rows
+          let lastRowLine = headerIdx;
+          for (let i = headerIdx + 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line || line.length === 0) continue;
+            
+            // Skip code block markers
+            if (line.includes('```')) continue;
+            
+            // Parse space-separated values
+            const parts = line.split(/\s+/);
+            if (parts.length >= 3) {
+              const row = [];
+              for (let c = 0; c < result.headers.length; c++) {
+                row.push(parts[c] !== undefined ? parts[c] : '');
+              }
+              result.rows.push(row);
+              lastRowLine = i;
+            }
+          }
+
+          // Anything after the last table row
+          if (lastRowLine + 1 < lines.length) {
+            afterText = lines.slice(lastRowLine + 1).join('\n');
+          }
+        }
       }
 
       return { table: result, preamble, afterText };
