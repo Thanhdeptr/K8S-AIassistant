@@ -43,8 +43,11 @@ class MCPHttpClient {
         this.headers = headers;
 
         this.sessionPath = null;        // "/messages?sessionId=UUID" (hoặc full URL)
+        this.sessionId = null;          // Session ID để recovery
         this.controller = null;         // AbortController cho SSE
         this.cookie = null;             // giữ Set-Cookie (nếu có)
+        this.lastActivity = Date.now(); // Thêm timestamp cho activity tracking
+        this.connectionState = 'disconnected'; // disconnected, connecting, connected, reconnecting
 
         this._endpointReady = null;     // Promise resolve khi có sessionPath
         this._sseReader = null;         // reader của SSE
@@ -52,11 +55,30 @@ class MCPHttpClient {
 
         this._pending = new Map();      // id -> {resolve, reject, timer}
         this._defaultTimeoutMs = 30000; // timeout cho 1 RPC (30s)
+        this._reconnectAttempts = 0;    // Số lần thử reconnect
+        this._maxReconnectAttempts = 3; // Tối đa 3 lần reconnect
+        this._reconnectDelay = 1000;    // Delay giữa các lần reconnect (ms)
     }
 
     async connect() {
-        if (this.sessionPath) return this.sessionPath;
+        if (this.sessionPath && this.connectionState === 'connected') {
+            console.log('🔗 Reusing existing MCP session:', this.sessionPath);
+            return this.sessionPath;
+        }
 
+        // Thử session recovery nếu có sessionId
+        if (this.sessionId && this.connectionState === 'disconnected') {
+            console.log('🔄 Attempting session recovery with ID:', this.sessionId);
+            try {
+                return await this._attemptSessionRecovery();
+            } catch (error) {
+                console.log('❌ Session recovery failed:', error.message);
+                // Fallback to new connection
+            }
+        }
+
+        console.log('🔄 Creating new MCP SSE connection to:', this.base);
+        this.connectionState = 'connecting';
         this.controller = new AbortController();
         const r = await fetch(`${this.base}/sse`, {
             method: 'GET',
@@ -103,6 +125,15 @@ class MCPHttpClient {
                             this.sessionPath = data.startsWith('http')
                                 ? data.replace(this.base, '')
                                 : (data.startsWith('/') ? data : `/${data}`);
+                            
+                            // Extract session ID từ session path
+                            const sessionMatch = this.sessionPath.match(/sessionId=([^&]+)/);
+                            if (sessionMatch) {
+                                this.sessionId = sessionMatch[1];
+                                console.log('📝 Extracted session ID:', this.sessionId);
+                            }
+                            
+                            this.connectionState = 'connected';
                             if (resolveEndpoint) { resolveEndpoint(this.sessionPath); resolveEndpoint = null; }
                             continue;
                         }
@@ -154,6 +185,36 @@ class MCPHttpClient {
         return this._endpointReady;
     }
 
+    // Session recovery method
+    async _attemptSessionRecovery() {
+        if (!this.sessionId) {
+            throw new Error('No session ID available for recovery');
+        }
+
+        console.log('🔄 Attempting to recover session:', this.sessionId);
+        
+        // Thử kết nối lại với session ID cũ
+        const recoveryUrl = `${this.base}/sse?sessionId=${this.sessionId}`;
+        this.controller = new AbortController();
+        
+        const r = await fetch(recoveryUrl, {
+            method: 'GET',
+            headers: { Accept: 'text/event-stream' },
+            signal: this.controller.signal,
+        });
+
+        if (!r.ok) {
+            throw new Error(`Session recovery failed: HTTP ${r.status}`);
+        }
+
+        // Nếu thành công, cập nhật session path
+        this.sessionPath = `/messages?sessionId=${this.sessionId}`;
+        this.connectionState = 'connected';
+        console.log('✅ Session recovery successful');
+        
+        return this.sessionPath;
+    }
+
     _tryJSON(text) {
         try { return JSON.parse(text); } catch { return null; }
     }
@@ -167,42 +228,81 @@ class MCPHttpClient {
         return null;
     }
 
-    // Gửi POST và chờ phản hồi qua SSE (khớp id)
+    // Gửi POST và chờ phản hồi qua SSE (khớp id) với retry logic
     async rpc(method, params = {}, id = Date.now()) {
-        if (!this.sessionPath) await this.connect();
-        const url = this.sessionPath.startsWith('http') ? this.sessionPath : `${this.base}${this.sessionPath}`;
+        let lastError = null;
+        
+        for (let attempt = 0; attempt <= this._maxReconnectAttempts; attempt++) {
+            try {
+                if (!this.sessionPath || this.connectionState !== 'connected') {
+                    console.log(`🔄 Attempt ${attempt + 1}: Connecting to MCP...`);
+                    await this.connect();
+                }
+                
+                const url = this.sessionPath.startsWith('http') ? this.sessionPath : `${this.base}${this.sessionPath}`;
+                console.log(`📤 MCP RPC (attempt ${attempt + 1}):`, method, 'to', url);
 
-        // Tạo promise chờ SSE trả về id này
-        const waitPromise = new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this._pending.delete(id);
-                reject(new Error(`MCP RPC timeout for id ${id}`));
-            }, this._defaultTimeoutMs);
-            this._pending.set(id, { resolve, reject, timer });
-        });
+                // Tạo promise chờ SSE trả về id này
+                const waitPromise = new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        this._pending.delete(id);
+                        console.log('⏰ MCP RPC timeout for id', id, 'method:', method);
+                        reject(new Error(`MCP RPC timeout for id ${id}`));
+                    }, this._defaultTimeoutMs);
+                    this._pending.set(id, { resolve, reject, timer });
+                });
 
-        // Gửi POST (không kỳ vọng JSON trả về ở HTTP body)
-        const headers = { ...this.headers, 'content-type': 'application/json' };
-        if (this.cookie) headers['cookie'] = this.cookie;
+                // Gửi POST (không kỳ vọng JSON trả về ở HTTP body)
+                const headers = { ...this.headers, 'content-type': 'application/json' };
+                if (this.cookie) headers['cookie'] = this.cookie;
 
-        const r = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-        });
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+                });
 
-        // Một số server trả 200/202 kèm text "ACK..." → ta không parse JSON ở đây.
-        if (!r.ok) {
-            // cố đọc body để gợi ý lỗi
-            const t = await r.text().catch(() => '');
-            // dọn pending id vì không có phản hồi SSE hợp lệ
-            const p = this._pending.get(id);
-            if (p) { clearTimeout(p.timer); this._pending.delete(id); }
-            throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
+                // Một số server trả 200/202 kèm text "ACK..." → ta không parse JSON ở đây.
+                if (!r.ok) {
+                    // cố đọc body để gợi ý lỗi
+                    const t = await r.text().catch(() => '');
+                    console.log('❌ MCP HTTP error:', r.status, t.slice(0, 200));
+                    // dọn pending id vì không có phản hồi SSE hợp lệ
+                    const p = this._pending.get(id);
+                    if (p) { clearTimeout(p.timer); this._pending.delete(id); }
+                    throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
+                }
+
+                console.log('📥 MCP RPC sent successfully, waiting for SSE response...');
+                // Chờ SSE resolve id
+                return await waitPromise;
+                
+            } catch (error) {
+                lastError = error;
+                console.log(`❌ MCP RPC attempt ${attempt + 1} failed:`, error.message);
+                
+                // Nếu là lỗi session, thử reconnect
+                if (error.message.includes('SSE connection not established') || 
+                    error.message.includes('SSE closed') ||
+                    error.message.includes('timeout')) {
+                    
+                    if (attempt < this._maxReconnectAttempts) {
+                        console.log(`🔄 Attempting reconnect (${attempt + 1}/${this._maxReconnectAttempts})...`);
+                        this.connectionState = 'reconnecting';
+                        this.sessionPath = null; // Reset để force reconnect
+                        
+                        // Delay trước khi thử lại
+                        await new Promise(resolve => setTimeout(resolve, this._reconnectDelay * (attempt + 1)));
+                        continue;
+                    }
+                }
+                
+                // Nếu không phải lỗi session hoặc đã hết attempts, throw error
+                break;
+            }
         }
-
-        // Chờ SSE resolve id
-        return waitPromise;
+        
+        throw lastError || new Error('MCP RPC failed after all retry attempts');
     }
 
     initialize() {
@@ -228,6 +328,8 @@ class MCPHttpClient {
         this.sessionPath = null;
         this.cookie = null;
         this._endpointReady = null;
+        this.connectionState = 'disconnected';
+        // Không xóa sessionId để có thể recovery sau này
 
         for (const [, p] of this._pending) {
             clearTimeout(p.timer);
@@ -373,6 +475,42 @@ app.get('/health', async (_req, res) => {
         res.json({ ok: true, ollama: OLLAMA_BASE, model: MODEL_NAME, mcp: MCP_BASE });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// MCP status endpoint
+app.get('/api/mcp/status', async (_req, res) => {
+    try {
+        if (!mcpClient) {
+            return res.json({ 
+                status: 'disconnected', 
+                message: 'No MCP client initialized',
+                sessionPath: null,
+                sessionId: null,
+                lastActivity: null
+            });
+        }
+
+        const isHealthy = await mcpClient.checkHealth();
+        const timeSinceLastActivity = Date.now() - mcpClient.lastActivity;
+        
+        res.json({ 
+            status: isHealthy ? 'connected' : 'unhealthy',
+            connectionState: mcpClient.connectionState,
+            sessionPath: mcpClient.sessionPath,
+            sessionId: mcpClient.sessionId,
+            lastActivity: new Date(mcpClient.lastActivity).toISOString(),
+            timeSinceLastActivity: `${Math.round(timeSinceLastActivity / 1000)}s`,
+            pendingRequests: mcpClient._pending.size,
+            reconnectAttempts: mcpClient._reconnectAttempts
+        });
+    } catch (e) {
+        res.status(500).json({ 
+            status: 'error', 
+            error: e.message,
+            sessionPath: mcpClient?.sessionPath || null,
+            sessionId: mcpClient?.sessionId || null
+        });
     }
 });
 
