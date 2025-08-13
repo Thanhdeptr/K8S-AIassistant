@@ -294,7 +294,10 @@ class MCPHttpClient {
                         throw new Error('Session not found');
                     }
                     
-                    throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
+                    // Nếu đã throw error ở trên thì không throw nữa
+                    if (r.status !== 410) {
+                        throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
+                    }
                 }
 
                 console.log('📥 MCP RPC sent successfully, waiting for SSE response...');
