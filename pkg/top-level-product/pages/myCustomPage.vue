@@ -30,12 +30,6 @@
         @mouseenter="showMessageMenu(index)"
         @mouseleave="hideMessageMenu(index)"
       >
-        <!-- Extended hover area for better UX -->
-        <div 
-          :class="['hover-area', msg.role === 'user' ? 'user-hover' : 'bot-hover']"
-          @mouseenter="showMessageMenu(index)"
-          @mouseleave="hideMessageMenu(index)"
-        ></div>
         <!-- Message content wrapper -->
         <div class="message-content">
           <!-- Regular text message -->
@@ -602,7 +596,7 @@ export default {
         if (this.hoveredMessageIndex === index) {
           this.hoveredMessageIndex = null;
         }
-      }, 100);
+      }, 150);
     },
     
     // Toggle message menu
@@ -1050,24 +1044,27 @@ export default {
   transform: scale(1.1);
 }
 
-/* Extended hover area for better UX */
-.hover-area {
+/* Extended hover area using CSS pseudo-elements */
+.message::before {
+  content: '';
   position: absolute;
   top: 0;
   width: 40px;
   height: 100%;
   z-index: 999;
-  /* Vùng hover luôn hiển thị nhưng transparent */
+  pointer-events: none;
 }
 
 /* Vùng hover cho tin nhắn user (bên trái) */
-.hover-area.user-hover {
+.message.user::before {
   left: -40px;
+  pointer-events: auto;
 }
 
 /* Vùng hover cho tin nhắn bot (bên phải) */
-.hover-area.bot-hover {
+.message.bot::before {
   right: -40px;
+  pointer-events: auto;
 }
 
 /* Message menu trigger (3 dots) - bên ngoài tin nhắn */
