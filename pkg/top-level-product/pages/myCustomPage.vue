@@ -18,6 +18,14 @@
         >
           ×
         </button>
+        
+        <!-- Test button -->
+        <button 
+          @click="testHover" 
+          style="margin-left: 8px; padding: 4px 8px; background: orange; color: white; border: none; border-radius: 4px; cursor: pointer;"
+        >
+          Test Hover: {{ hoveredMessageIndex }}
+        </button>
       </div>
     </div>
 
@@ -29,6 +37,7 @@
         :data-message-index="index"
         @mouseenter="showMessageMenu(index)"
         @mouseleave="hideMessageMenu(index)"
+        :style="{ border: hoveredMessageIndex === index ? '2px solid red' : '' }"
       >
         <!-- Message content wrapper -->
         <div class="message-content">
@@ -78,11 +87,17 @@
         
         <!-- Message menu (3 dots) -->
         <div 
-          v-if="msg.role === 'user' && hoveredMessageIndex === index" 
+          v-if="hoveredMessageIndex === index" 
           class="message-menu-trigger"
           @click="toggleMessageMenu(index, $event)"
+          style="background: red !important; color: white !important;"
         >
           ⋯
+        </div>
+        
+        <!-- Debug info -->
+        <div v-if="hoveredMessageIndex === index" style="position: absolute; top: -20px; right: 0; background: blue; color: white; padding: 2px; font-size: 10px; z-index: 1000;">
+          HOVER: {{ index }}
         </div>
         
         <!-- Message options menu -->
@@ -585,7 +600,9 @@ export default {
 
     // Hiển thị menu 3 chấm khi hover
     showMessageMenu(index) {
+      console.log('Hover vào tin nhắn:', index);
       this.hoveredMessageIndex = index;
+      console.log('hoveredMessageIndex set to:', this.hoveredMessageIndex);
     },
     
     // Ẩn menu 3 chấm khi không hover
@@ -593,6 +610,7 @@ export default {
       // Delay để tránh menu biến mất quá nhanh
       setTimeout(() => {
         if (this.hoveredMessageIndex === index) {
+          console.log('Rời khỏi tin nhắn:', index);
           this.hoveredMessageIndex = null;
         }
       }, 100);
@@ -619,6 +637,13 @@ export default {
           document.addEventListener('click', closeMenu);
         }, 100);
       }
+    },
+    
+    // Test hover function
+    testHover() {
+      console.log('Test hover clicked');
+      this.hoveredMessageIndex = this.hoveredMessageIndex === 0 ? null : 0;
+      console.log('hoveredMessageIndex is now:', this.hoveredMessageIndex);
     },
     
     // Tính toán vị trí menu
@@ -786,6 +811,7 @@ export default {
   border-radius: 12px;
   word-wrap: break-word;
   font-size: 15px;
+  position: relative;
 }
 
 .message.user {
@@ -1046,7 +1072,8 @@ export default {
   font-weight: bold;
   color: #666;
   transition: all 0.2s ease;
-  z-index: 10;
+  z-index: 1000;
+  border: 2px solid red;
 }
 
 .message-menu-trigger:hover {
