@@ -505,9 +505,9 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
         'KHÔNG thay đổi format của table, chỉ thêm marker này. ' +
         'Ví dụ:\n' +
         'isMarkTable:true\n' +
-        'NAME                                       READY   STATUS    RESTARTS   AGE   IP             NODE      NOMINATED NODE   READINESS GATES\n' +
-        'mongodb-0                                  1/1     Running   0          12d   10.244.0.117   testmcp   <none>           <none>\n' +
-        'todo-backend-app-deploy-7889844d96-b85th   1/1     Running   0          11d   10.244.0.127   testmcp   <none>           <none>',
+        'NAME                                       READY   STATUS    RESTARTS   AGE   IP             NODE      \n' +
+        'mongodb-0                                  1/1     Running   0          12d   10.244.0.117   testmcp   \n' +
+        'todo-backend-app-deploy-7889844d96-b85th   1/1     Running   0          11d   10.244.0.127   testmcp     ',
     });
 
     let guard = 0;
