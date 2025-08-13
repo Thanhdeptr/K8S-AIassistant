@@ -187,19 +187,18 @@ class MCPHttpClient {
         return this._endpointReady;
     }
 
-    // Session recovery method
+    // Session recovery method - keep SSE stream open and process events
     async _attemptSessionRecovery() {
         if (!this.sessionId) {
             throw new Error('No session ID available for recovery');
         }
 
         console.log('🔄 Attempting to recover session:', this.sessionId);
-        
-        // Thử kết nối lại với session ID cũ
+
         const recoveryUrl = `${this.base}/sse?sessionId=${this.sessionId}`;
         console.log('🔄 Making GET request to:', recoveryUrl);
         this.controller = new AbortController();
-        
+
         const r = await fetch(recoveryUrl, {
             method: 'GET',
             headers: { Accept: 'text/event-stream' },
@@ -207,15 +206,85 @@ class MCPHttpClient {
         });
 
         console.log('🔄 Recovery response status:', r.status);
-        if (!r.ok) {
+        if (!r.ok || !r.body) {
             throw new Error(`Session recovery failed: HTTP ${r.status}`);
         }
 
-        // Nếu thành công, cập nhật session path
+        // Set sessionPath immediately for RPCs, expect same sessionId
         this.sessionPath = `/messages?sessionId=${this.sessionId}`;
+
+        // Start reading SSE stream to receive JSON-RPC responses
+        this._sseReader = r.body.getReader();
+        (async () => {
+            try {
+                while (true) {
+                    const { value, done } = await this._sseReader.read();
+                    if (done) break;
+                    this._buf += Buffer.from(value).toString('utf8');
+
+                    let idx;
+                    while ((idx = this._buf.indexOf('\n\n')) >= 0) {
+                        const raw = this._buf.slice(0, idx);
+                        this._buf = this._buf.slice(idx + 2);
+
+                        let ev = '', data = '';
+                        for (const line of raw.split('\n')) {
+                            const s = line.trim();
+                            if (s.startsWith('event:')) ev = s.slice(6).trim();
+                            else if (s.startsWith('data:')) data += (data ? '\n' : '') + s.slice(5).trim();
+                        }
+
+                        // Optional endpoint event
+                        if (ev === 'endpoint' && data) {
+                            const sessionMatch = data.match(/sessionId=([^&]+)/);
+                            if (sessionMatch) {
+                                this.sessionId = sessionMatch[1];
+                                this.sessionPath = `/messages?sessionId=${this.sessionId}`;
+                                console.log('📝 (recovered) session ID:', this.sessionId);
+                            }
+                            this.connectionState = 'connected';
+                            continue;
+                        }
+
+                        if (data) {
+                            const candidates = data.split('\n').map(s => s.trim()).filter(Boolean);
+                            for (const cand of candidates) {
+                                const obj = this._tryJSON(cand) || this._tryExtractJSON(cand);
+                                if (!obj || obj.jsonrpc !== '2.0' || (obj.id === undefined && obj.result === undefined && obj.error === undefined)) {
+                                    continue;
+                                }
+                                const pending = this._pending.get(obj.id);
+                                if (pending) {
+                                    this._pending.delete(obj.id);
+                                    clearTimeout(pending.timer);
+                                    if (obj.error) {
+                                        pending.reject(new Error(obj.error.message || 'MCP error'));
+                                    } else {
+                                        pending.resolve(obj.result);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // On stream close, fail pending
+                for (const [id, p] of this._pending) {
+                    clearTimeout(p.timer);
+                    p.reject(new Error('SSE closed'));
+                }
+                this._pending.clear();
+            } catch (e) {
+                for (const [id, p] of this._pending) {
+                    clearTimeout(p.timer);
+                    p.reject(e);
+                }
+                this._pending.clear();
+            }
+        })();
+
         this.connectionState = 'connected';
         console.log('✅ Session recovery successful');
-        
         return this.sessionPath;
     }
 

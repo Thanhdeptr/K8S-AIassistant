@@ -771,8 +771,8 @@ export default {
 }
 
 .header-logo {
-  width: 30px;
-  height: 30px;
+  width: 100px;
+  height: 100px;
   object-fit: contain;
 }
 
