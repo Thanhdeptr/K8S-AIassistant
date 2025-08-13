@@ -260,14 +260,17 @@ class MCPHttpClient {
                 const headers = { ...this.headers, 'content-type': 'application/json' };
                 if (this.cookie) headers['cookie'] = this.cookie;
 
+                console.log(`🔍 About to send POST to: ${url}`);
                 const r = await fetch(url, {
                     method: 'POST',
                     headers,
                     body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
                 });
+                console.log(`🔍 POST response status: ${r.status}`);
 
                 // Một số server trả 200/202 kèm text "ACK..." → ta không parse JSON ở đây.
                 if (!r.ok) {
+                    console.log(`🔍 HTTP error detected: ${r.status}`);
                     // cố đọc body để gợi ý lỗi
                     const t = await r.text().catch(() => '');
                     console.log('❌ MCP HTTP error:', r.status, t.slice(0, 200));
@@ -283,13 +286,17 @@ class MCPHttpClient {
                             console.log('🔍 Parsed 410 error data:', errorData);
                             if (errorData.error?.data?.action === 'reconnect_sse') {
                                 console.log('🔄 Detected reconnect_sse action, throwing reconnect error');
+                                console.log('🔄 About to throw error...');
                                 throw new Error('Session inactive - need SSE reconnect');
                             } else {
                                 console.log('❌ No reconnect_sse action found in 410 response');
+                                // Vẫn throw error để trigger reconnect
+                                throw new Error('Session inactive - need SSE reconnect');
                             }
                         } catch (parseError) {
                             console.log('❌ Failed to parse 410 JSON:', parseError.message);
-                            // Fallback nếu không parse được JSON
+                            // Fallback: vẫn throw error để trigger reconnect
+                            throw new Error('Session inactive - need SSE reconnect');
                         }
                     }
                     
@@ -298,10 +305,8 @@ class MCPHttpClient {
                         throw new Error('Session not found');
                     }
                     
-                    // Nếu đã throw error ở trên thì không throw nữa
-                    if (r.status !== 410) {
-                        throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
-                    }
+                    // Throw error cho tất cả HTTP errors khác
+                    throw new Error(`MCP HTTP ${r.status}: ${t.slice(0, 200)}...`);
                 }
 
                 console.log('📥 MCP RPC sent successfully, waiting for SSE response...');
@@ -311,14 +316,21 @@ class MCPHttpClient {
             } catch (error) {
                 lastError = error;
                 console.log(`❌ MCP RPC attempt ${attempt + 1} failed:`, error.message);
+                console.log(`🔍 Full error object:`, error);
+                console.log(`🔍 Error stack:`, error.stack);
                 
                 // Nếu là lỗi session, thử reconnect
                 console.log(`🔍 Checking if error is session-related: "${error.message}"`);
-                if (error.message.includes('SSE connection not established') || 
+                const isSessionError = error.message.includes('SSE connection not established') || 
                     error.message.includes('SSE closed') ||
                     error.message.includes('timeout') ||
                     error.message.includes('Session not found') ||
-                    error.message.includes('Session inactive - need SSE reconnect')) {
+                    error.message.includes('Session inactive - need SSE reconnect') ||
+                    error.message.includes('MCP RPC timeout');
+                
+                console.log(`🔍 Is session error? ${isSessionError}`);
+                
+                if (isSessionError) {
                     
                     console.log(`✅ Error is session-related, checking retry attempts...`);
                     if (attempt < this._maxReconnectAttempts) {
