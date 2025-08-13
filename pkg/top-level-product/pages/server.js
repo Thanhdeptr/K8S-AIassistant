@@ -271,6 +271,18 @@ class MCPHttpClient {
                     const p = this._pending.get(id);
                     if (p) { clearTimeout(p.timer); this._pending.delete(id); }
                     
+                    // Handle 410 Gone - Session inactive
+                    if (r.status === 410) {
+                        try {
+                            const errorData = JSON.parse(t);
+                            if (errorData.error?.data?.action === 'reconnect_sse') {
+                                throw new Error('Session inactive - need SSE reconnect');
+                            }
+                        } catch (parseError) {
+                            // Fallback nếu không parse được JSON
+                        }
+                    }
+                    
                     // Check if it's a session not found error
                     if (t.includes('Session not found') || t.includes('session not found')) {
                         throw new Error('Session not found');
@@ -291,13 +303,14 @@ class MCPHttpClient {
                 if (error.message.includes('SSE connection not established') || 
                     error.message.includes('SSE closed') ||
                     error.message.includes('timeout') ||
-                    error.message.includes('Session not found')) {
+                    error.message.includes('Session not found') ||
+                    error.message.includes('Session inactive - need SSE reconnect')) {
                     
                     if (attempt < this._maxReconnectAttempts) {
                         console.log(`🔄 Session error detected, attempting reconnect (${attempt + 1}/${this._maxReconnectAttempts})...`);
                         this.connectionState = 'reconnecting';
                         this.sessionPath = null; // Reset để force reconnect
-                        this.sessionId = null; // Reset session ID vì session cũ đã bị xóa
+                        // Giữ sessionId để thử recovery trước khi tạo mới
                         
                         // Delay trước khi thử lại
                         await new Promise(resolve => setTimeout(resolve, this._reconnectDelay * (attempt + 1)));
@@ -328,6 +341,20 @@ class MCPHttpClient {
 
     toolsCall(name, args) {
         return this.rpc('tools/call', { name, arguments: args }, /*id*/ Date.now() + 2);
+    }
+
+    async checkHealth() {
+        try {
+            if (!this.sessionPath || this.connectionState !== 'connected') {
+                return false;
+            }
+            
+            // Thử gọi một RPC đơn giản để test connection
+            await this.rpc('tools/list', {}, Date.now() + 999);
+            return true;
+        } catch (error) {
+            return false;
+        }
     }
 
     close() {
