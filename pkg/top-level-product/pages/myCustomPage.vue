@@ -30,6 +30,12 @@
         @mouseenter="showMessageMenu(index)"
         @mouseleave="hideMessageMenu(index)"
       >
+        <!-- Extended hover area for better UX -->
+        <div 
+          :class="['hover-area', msg.role === 'user' ? 'user-hover' : 'bot-hover']"
+          @mouseenter="showMessageMenu(index)"
+          @mouseleave="hideMessageMenu(index)"
+        ></div>
         <!-- Message content wrapper -->
         <div class="message-content">
           <!-- Regular text message -->
@@ -1042,6 +1048,26 @@ export default {
 .header-delete-btn:hover {
   background: #1d4ed8;
   transform: scale(1.1);
+}
+
+/* Extended hover area for better UX */
+.hover-area {
+  position: absolute;
+  top: 0;
+  width: 40px;
+  height: 100%;
+  z-index: 999;
+  /* Vùng hover luôn hiển thị nhưng transparent */
+}
+
+/* Vùng hover cho tin nhắn user (bên trái) */
+.hover-area.user-hover {
+  left: -40px;
+}
+
+/* Vùng hover cho tin nhắn bot (bên phải) */
+.hover-area.bot-hover {
+  right: -40px;
 }
 
 /* Message menu trigger (3 dots) - bên ngoài tin nhắn */
