@@ -336,7 +336,7 @@ export default {
       }
     },
 
-    // Check if the response contains Kubernetes logs (table format or JSON format)
+    // Check if the response contains Kubernetes logs (table format, JSON format, or plain text format)
     isKubernetesLogs(text) {
       if (!text || typeof text !== 'string') return false;
       
@@ -360,6 +360,15 @@ export default {
         } catch {
           return false;
         }
+      }
+      
+      // Kiểm tra plain text format logs
+      if (text.includes('dòng log') || text.includes('log cuối cùng') || 
+          text.includes('pod `') || text.includes('container') ||
+          text.includes('yarn run') || text.includes('node:') ||
+          text.includes('Warning:') || text.includes('Error:') ||
+          text.includes('server is up') || text.includes('port')) {
+        return true;
       }
       
       return false;
@@ -556,7 +565,7 @@ export default {
       return { table: result, preamble, afterText };
     },
 
-    // Parse Kubernetes logs from table format or JSON format
+    // Parse Kubernetes logs from table format, JSON format, or plain text format
     parseKubernetesLogs(text) {
       const logs = [];
       
@@ -585,7 +594,7 @@ export default {
             });
           }
         }
-      } else {
+      } else if (text.includes('| Timestamp | Level | Category | Message |')) {
         // Parse table format logs
         const lines = text.split('\n');
         
@@ -606,6 +615,39 @@ export default {
               message: parts[4] || parts[3] || ''
             });
           }
+        }
+      } else {
+        // Parse plain text format logs
+        const lines = text.split('\n').filter(line => line.trim());
+        
+        for (const line of lines) {
+          // Skip markdown formatting and empty lines
+          if (line.startsWith('**') || line.startsWith('```') || 
+              line.includes('dòng log') || line.includes('pod `') ||
+              line.trim() === '') {
+            continue;
+          }
+          
+          // Determine log level based on content
+          let level = 'INFO';
+          if (line.includes('Warning:')) level = 'WARNING';
+          else if (line.includes('Error:')) level = 'ERROR';
+          else if (line.includes('yarn run')) level = 'INFO';
+          else if (line.includes('node:')) level = 'WARNING';
+          else if (line.includes('server is up')) level = 'INFO';
+          
+          // Determine category based on content
+          let category = 'Application';
+          if (line.includes('yarn')) category = 'Package Manager';
+          else if (line.includes('node:')) category = 'Node.js';
+          else if (line.includes('server')) category = 'Server';
+          
+          logs.push({
+            timestamp: new Date().toISOString(), // Use current time for plain text logs
+            level: level,
+            category: category,
+            message: line.trim()
+          });
         }
       }
       
