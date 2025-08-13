@@ -56,6 +56,8 @@
             </div>
           </div>
 
+
+
           <!-- Formatted markdown table display -->
           <div v-if="msg.isTable" class="table-container">
             <div v-if="msg.preamble" class="message-text table-preamble">{{ msg.preamble }}</div>
@@ -293,7 +295,7 @@ export default {
             const formattedLogs = this.parseKubernetesLogs(reply);
             this.messages.push({ 
               role: "bot", 
-              text: "Đây là logs từ Kubernetes:", 
+              text: reply, // giữ nguyên nội dung gốc cho context hội thoại
               isLogs: true,
               logs: formattedLogs
             });
@@ -334,10 +336,33 @@ export default {
       }
     },
 
-    // Check if the response contains Kubernetes logs in table format
+    // Check if the response contains Kubernetes logs (table format or JSON format)
     isKubernetesLogs(text) {
-      return text.includes('| Timestamp | Level | Category | Message |') || 
-             text.includes('Mười dòng cuối cùng của log container');
+      if (!text || typeof text !== 'string') return false;
+      
+      // Kiểm tra table format logs
+      if (text.includes('| Timestamp | Level | Category | Message |') || 
+          text.includes('Mười dòng cuối cùng của log container')) {
+        return true;
+      }
+      
+      // Kiểm tra JSON format logs
+      const jsonMatches = text.match(/\{[^{}]*\}/g);
+      if (jsonMatches && jsonMatches.length >= 2) {
+        // Kiểm tra xem có phải là logs không (có timestamp, message, etc.)
+        const sampleJson = jsonMatches[0];
+        try {
+          const parsed = JSON.parse(sampleJson);
+          return parsed.timestamp || parsed.time || parsed.ts || 
+                 parsed.message || parsed.msg || 
+                 parsed.level || parsed.log || 
+                 parsed.attr || parsed.attributes;
+        } catch {
+          return false;
+        }
+      }
+      
+      return false;
     },
 
     // Check if the response looks like a generic Markdown table or plain text table
@@ -531,27 +556,56 @@ export default {
       return { table: result, preamble, afterText };
     },
 
-    // Parse Kubernetes logs from table format
+    // Parse Kubernetes logs from table format or JSON format
     parseKubernetesLogs(text) {
       const logs = [];
-      const lines = text.split('\n');
       
-      for (const line of lines) {
-        // Skip header lines and empty lines
-        if (line.includes('|-----') || line.includes('| Timestamp') || 
-            line.includes('| # |') || line.trim() === '') {
-          continue;
+      // Kiểm tra nếu là JSON format
+      const jsonMatches = text.match(/\{[^{}]*\}/g);
+      if (jsonMatches && jsonMatches.length >= 2) {
+        // Parse JSON logs
+        for (const jsonStr of jsonMatches) {
+          try {
+            const logEntry = JSON.parse(jsonStr);
+            logs.push({
+              timestamp: logEntry.timestamp || logEntry.time || logEntry.ts || '',
+              level: logEntry.level || logEntry.log || 'INFO',
+              category: logEntry.category || logEntry.context || '',
+              message: logEntry.message || logEntry.msg || 
+                      (logEntry.attr && logEntry.attr.message) || 
+                      JSON.stringify(logEntry)
+            });
+          } catch (e) {
+            // Nếu không parse được JSON, thêm như text thường
+            logs.push({
+              timestamp: '',
+              level: 'ERROR',
+              category: 'PARSE_ERROR',
+              message: jsonStr
+            });
+          }
         }
+      } else {
+        // Parse table format logs
+        const lines = text.split('\n');
         
-        // Parse table row
-        const parts = line.split('|').map(part => part.trim()).filter(part => part);
-        if (parts.length >= 4) {
-          logs.push({
-            timestamp: parts[1] || parts[0],
-            level: parts[2] || parts[1],
-            category: parts[3] || parts[2],
-            message: parts[4] || parts[3] || ''
-          });
+        for (const line of lines) {
+          // Skip header lines and empty lines
+          if (line.includes('|-----') || line.includes('| Timestamp') || 
+              line.includes('| # |') || line.trim() === '') {
+            continue;
+          }
+          
+          // Parse table row
+          const parts = line.split('|').map(part => part.trim()).filter(part => part);
+          if (parts.length >= 4) {
+            logs.push({
+              timestamp: parts[1] || parts[0],
+              level: parts[2] || parts[1],
+              category: parts[3] || parts[2],
+              message: parts[4] || parts[3] || ''
+            });
+          }
         }
       }
       
