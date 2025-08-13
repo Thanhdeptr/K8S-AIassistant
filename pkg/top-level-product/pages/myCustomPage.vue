@@ -27,7 +27,8 @@
         :key="index" 
         :class="['message', msg.role, { 'is-table': msg.isTable }]"
         :data-message-index="index"
-        @contextmenu="handleContextMenu($event, index)"
+        @mouseenter="showMessageMenu(index)"
+        @mouseleave="hideMessageMenu(index)"
       >
         <!-- Message content wrapper -->
         <div class="message-content">
@@ -73,9 +74,31 @@
             </div>
             <div v-if="msg.afterText" class="message-text table-after">{{ msg.afterText }}</div>
           </div>
+                </div>
+        
+        <!-- Message menu (3 dots) -->
+        <div 
+          v-if="msg.role === 'user' && hoveredMessageIndex === index" 
+          class="message-menu-trigger"
+          @click="toggleMessageMenu(index, $event)"
+        >
+          ⋯
         </div>
         
-
+        <!-- Message options menu -->
+        <div 
+          v-if="activeMessageMenu === index" 
+          class="message-options-menu"
+          :style="getMenuPosition(index)"
+        >
+          <div class="menu-arrow"></div>
+          <div class="menu-item" @click="deleteMessage(index)">
+            Xóa
+          </div>
+          <div class="menu-item" @click="copyMessage(index)">
+            Sao chép
+          </div>
+        </div>
       </div>
     </div>
 
@@ -108,6 +131,8 @@ export default {
       localStorageKey: 'chatbot-messages', // Key cho localStorage
       maxMessages: 100, // Giới hạn số tin nhắn lưu trữ
       storageInfo: '', // Thông tin về localStorage usage
+      hoveredMessageIndex: null, // Index của tin nhắn đang hover
+      activeMessageMenu: null, // Index của menu đang mở
     };
   },
   computed: {
@@ -558,152 +583,69 @@ export default {
       }
     },
 
-    // Xử lý context menu (click chuột phải) - Tối ưu UX
-    handleContextMenu(event, index) {
-      event.preventDefault();
-      
-      // Xóa tất cả context menu cũ trước khi tạo mới
-      this.removeAllContextMenus();
-      
-      // Tạo context menu với nhiều tùy chọn
-      const menu = document.createElement('div');
-      menu.className = 'context-menu';
-      menu.innerHTML = `
-        <div class="context-menu-item copy-item" data-action="copy" data-index="${index}">
-          <span class="menu-icon">📋</span>
-          <span class="menu-text">Sao chép tin nhắn</span>
-          <span class="menu-shortcut">Ctrl+C</span>
-        </div>
-        <div class="context-menu-item select-item" data-action="select" data-index="${index}">
-          <span class="menu-icon">📝</span>
-          <span class="menu-text">Chọn tất cả</span>
-          <span class="menu-shortcut">Ctrl+A</span>
-        </div>
-        <div class="context-menu-divider"></div>
-        <div class="context-menu-item delete-item" data-action="delete" data-index="${index}">
-          <span class="menu-icon">🗑️</span>
-          <span class="menu-text">Xóa tin nhắn</span>
-          <span class="menu-shortcut">Del</span>
-        </div>
-      `;
-      
-      // Tính toán vị trí tối ưu để menu không bị cắt
-      const menuWidth = 220;
-      const menuHeight = 160;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      
-      let left = event.clientX;
-      let top = event.clientY;
-      
-      // Đảm bảo menu không vượt ra ngoài viewport
-      if (left + menuWidth > viewportWidth) {
-        left = viewportWidth - menuWidth - 10;
-      }
-      if (top + menuHeight > viewportHeight) {
-        top = viewportHeight - menuHeight - 10;
-      }
-      
-      // Đặt vị trí menu
-      menu.style.position = 'fixed';
-      menu.style.left = left + 'px';
-      menu.style.top = top + 'px';
-      menu.style.zIndex = '10000';
-      menu.style.opacity = '0';
-      menu.style.transform = 'scale(0.9)';
-      
-      // Thêm vào body
-      document.body.appendChild(menu);
-      
-      // Animation hiển thị
-      requestAnimationFrame(() => {
-        menu.style.transition = 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
-        menu.style.opacity = '1';
-        menu.style.transform = 'scale(1)';
-      });
-      
-      // Xử lý click vào menu items
-      menu.addEventListener('click', (e) => {
-        const item = e.target.closest('.context-menu-item');
-        if (!item) return;
-        
-        const action = item.dataset.action;
-        const messageIndex = parseInt(item.dataset.index);
-        
-        switch (action) {
-          case 'copy':
-            this.copyMessage(messageIndex);
-            break;
-          case 'select':
-            this.selectMessage(messageIndex);
-            break;
-          case 'delete':
-            this.deleteMessage(messageIndex);
-            break;
-        }
-        
-        this.removeContextMenu(menu);
-      });
-      
-      // Xử lý keyboard shortcuts
-      const handleKeyDown = (e) => {
-        if (e.key === 'Escape') {
-          this.removeContextMenu(menu);
-          document.removeEventListener('keydown', handleKeyDown);
-        } else if (e.key === 'Delete' && !e.ctrlKey && !e.metaKey) {
-          e.preventDefault();
-          this.deleteMessage(index);
-          this.removeContextMenu(menu);
-          document.removeEventListener('keydown', handleKeyDown);
-        } else if (e.ctrlKey && e.key === 'c') {
-          e.preventDefault();
-          this.copyMessage(index);
-          this.removeContextMenu(menu);
-          document.removeEventListener('keydown', handleKeyDown);
-        } else if (e.ctrlKey && e.key === 'a') {
-          e.preventDefault();
-          this.selectMessage(index);
-          this.removeContextMenu(menu);
-          document.removeEventListener('keydown', handleKeyDown);
-        }
-      };
-      
-      document.addEventListener('keydown', handleKeyDown);
-      
-      // Xóa menu khi click ra ngoài hoặc scroll
-      const removeMenu = () => {
-        this.removeContextMenu(menu);
-        document.removeEventListener('click', removeMenu);
-        document.removeEventListener('scroll', removeMenu);
-        document.removeEventListener('keydown', handleKeyDown);
-      };
-      
-      // Delay để tránh menu bị đóng ngay lập tức
+    // Hiển thị menu 3 chấm khi hover
+    showMessageMenu(index) {
+      this.hoveredMessageIndex = index;
+    },
+    
+    // Ẩn menu 3 chấm khi không hover
+    hideMessageMenu(index) {
+      // Delay để tránh menu biến mất quá nhanh
       setTimeout(() => {
-        document.addEventListener('click', removeMenu);
-        document.addEventListener('scroll', removeMenu);
+        if (this.hoveredMessageIndex === index) {
+          this.hoveredMessageIndex = null;
+        }
       }, 100);
     },
     
-    // Xóa context menu với animation
-    removeContextMenu(menu) {
-      if (!menu || !menu.parentElement) return;
+    // Toggle message menu
+    toggleMessageMenu(index, event) {
+      event.stopPropagation();
       
-      menu.style.transition = 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)';
-      menu.style.opacity = '0';
-      menu.style.transform = 'scale(0.9)';
-      
-      setTimeout(() => {
-        if (menu.parentElement) {
-          menu.parentElement.removeChild(menu);
-        }
-      }, 150);
+      if (this.activeMessageMenu === index) {
+        this.activeMessageMenu = null;
+      } else {
+        this.activeMessageMenu = index;
+        
+        // Đóng menu khi click ra ngoài
+        const closeMenu = (e) => {
+          if (!e.target.closest('.message-options-menu') && !e.target.closest('.message-menu-trigger')) {
+            this.activeMessageMenu = null;
+            document.removeEventListener('click', closeMenu);
+          }
+        };
+        
+        setTimeout(() => {
+          document.addEventListener('click', closeMenu);
+        }, 100);
+      }
     },
     
-    // Xóa tất cả context menu
-    removeAllContextMenus() {
-      const menus = document.querySelectorAll('.context-menu');
-      menus.forEach(menu => this.removeContextMenu(menu));
+    // Tính toán vị trí menu
+    getMenuPosition(index) {
+      const messageElement = document.querySelector(`[data-message-index="${index}"]`);
+      if (!messageElement) return {};
+      
+      const rect = messageElement.getBoundingClientRect();
+      const menuWidth = 180;
+      const menuHeight = 160;
+      
+      // Đặt menu ở bên phải tin nhắn
+      let left = rect.right + 10;
+      let top = rect.top;
+      
+      // Đảm bảo menu không vượt ra ngoài viewport
+      if (left + menuWidth > window.innerWidth) {
+        left = rect.left - menuWidth - 10;
+      }
+      if (top + menuHeight > window.innerHeight) {
+        top = window.innerHeight - menuHeight - 20;
+      }
+      
+      return {
+        left: left + 'px',
+        top: top + 'px'
+      };
     },
     
     // Sao chép tin nhắn
@@ -739,18 +681,7 @@ export default {
       }
     },
     
-    // Chọn tất cả text trong tin nhắn
-    selectMessage(index) {
-      const messageElement = document.querySelector(`[data-message-index="${index}"]`);
-      if (messageElement) {
-        const range = document.createRange();
-        range.selectNodeContents(messageElement);
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-        this.showToast('📝 Đã chọn tất cả nội dung tin nhắn', 'info');
-      }
-    },
+
     
     // Hiển thị toast notification
     showToast(message, type = 'info') {
@@ -1098,66 +1029,82 @@ export default {
   transform: scale(1.1);
 }
 
-/* Context menu - Tối ưu UX */
-.context-menu {
+/* Message menu trigger (3 dots) */
+.message-menu-trigger {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  color: #666;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.message-menu-trigger:hover {
+  background: rgba(0, 0, 0, 0.2);
+  color: #333;
+  transform: scale(1.1);
+}
+
+/* Message options menu */
+.message-options-menu {
+  position: fixed;
   background: white;
   border: 1px solid #e1e5e9;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
   padding: 8px 0;
-  min-width: 220px;
+  min-width: 180px;
+  z-index: 10000;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.context-menu-item {
+.menu-arrow {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid white;
+  filter: drop-shadow(0 -2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.menu-item {
   padding: 12px 16px;
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
-  justify-content: space-between;
   position: relative;
   user-select: none;
 }
 
-.context-menu-item:hover {
+.menu-item:hover {
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  transform: translateX(2px);
 }
 
-.context-menu-item:active {
+.menu-item:active {
   background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
-  transform: translateX(1px);
 }
 
-.menu-icon {
-  margin-right: 12px;
-  font-size: 16px;
-  width: 20px;
+.menu-item {
   text-align: center;
-}
-
-.menu-text {
-  flex: 1;
   font-weight: 500;
   color: #495057;
-}
-
-.menu-shortcut {
-  font-size: 12px;
-  color: #6c757d;
-  background: #f8f9fa;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-}
-
-.context-menu-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, #e9ecef 50%, transparent 100%);
-  margin: 4px 0;
 }
 
 /* Toast notifications */
