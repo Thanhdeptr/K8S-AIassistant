@@ -277,8 +277,19 @@ export default {
         if (data.message && data.message.content) {
           const reply = data.message.content.trim();
 
-          // Check if the reply contains Kubernetes logs (table format)
-          if (this.isKubernetesLogs(reply)) {
+          // Check if AI explicitly marked as table
+          if (reply.includes('isMarkTable:true') || reply.includes('isMarkTable: true')) {
+            const tableContent = reply.replace(/isMarkTable:\s*true\s*\n?/i, '').trim();
+            const { table, preamble, afterText } = this.parseMarkdownTable(tableContent);
+            this.messages.push({
+              role: "bot",
+              text: tableContent, // giữ nguyên nội dung gốc cho context hội thoại
+              isTable: true,
+              table,
+              preamble,
+              afterText
+            });
+          } else if (this.isKubernetesLogs(reply)) {
             const formattedLogs = this.parseKubernetesLogs(reply);
             this.messages.push({ 
               role: "bot", 
@@ -332,7 +343,7 @@ export default {
     // Check if the response looks like a generic Markdown table or plain text table
     isMarkdownTable(text) {
       if (!text || typeof text !== 'string') return false;
-      const lines = text.split('\n').map(l => l.trim());
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
       
       // Check for markdown table (with pipes and dashes)
       for (let i = 0; i < lines.length - 2; i++) {
@@ -343,14 +354,63 @@ export default {
         }
       }
       
-      // Check for plain text table (space-separated columns)
+      // Check for plain text table (more flexible approach)
       for (let i = 0; i < lines.length - 1; i++) {
         const line = lines[i];
-        if (line.includes('NAMESPACE') && line.includes('NAME') && line.includes('STATUS')) {
-          // Check if next line has similar structure
-          const nextLine = lines[i + 1];
-          if (nextLine && nextLine.split(/\s+/).length >= 3) {
-            return true;
+        const nextLine = lines[i + 1];
+        
+        if (!nextLine) continue;
+        
+        // Check if current line looks like a header (contains common table headers)
+        const headerWords = line.toUpperCase().split(/\s+/);
+        const hasCommonHeaders = headerWords.some(word => 
+          ['NAME', 'STATUS', 'TYPE', 'READY', 'AGE', 'IP', 'NODE', 'NAMESPACE', 'RESTARTS', 
+           'CLUSTER-IP', 'EXTERNAL-IP', 'UP-TO-DATE', 'AVAILABLE', 'REPLICAS', 'VERSION',
+           'CREATED', 'SIZE', 'CAPACITY', 'ACCESS', 'MODE', 'PERSISTENTVOLUMES',
+           'PERSISTENTVOLUMECLAIMS', 'STORAGECLASS', 'VOLUME', 'CLAIM', 'REFERENCE'].includes(word)
+        );
+        
+        if (hasCommonHeaders) {
+          // Check if next line has similar structure (multiple columns)
+          const nextLineColumns = nextLine.split(/\s+/).filter(col => col.length > 0);
+          
+          // If next line has at least 3 columns and looks like data (not another header)
+          if (nextLineColumns.length >= 3) {
+            // Additional check: next line shouldn't be all uppercase (likely another header)
+            const isNextLineData = !nextLine.toUpperCase().split(/\s+/).every(word => 
+              ['NAME', 'STATUS', 'TYPE', 'READY', 'AGE', 'IP', 'NODE', 'NAMESPACE', 'RESTARTS',
+               'CLUSTER-IP', 'EXTERNAL-IP', 'UP-TO-DATE', 'AVAILABLE', 'REPLICAS', 'VERSION',
+               'CREATED', 'SIZE', 'CAPACITY', 'ACCESS', 'MODE', 'PERSISTENTVOLUMES',
+               'PERSISTENTVOLUMECLAIMS', 'STORAGECLASS', 'VOLUME', 'CLAIM', 'REFERENCE'].includes(word)
+            );
+            
+            if (isNextLineData) {
+              return true;
+            }
+          }
+        }
+        
+        // Check for table with at least 3 columns and consistent structure
+        const currentColumns = line.split(/\s+/).filter(col => col.length > 0);
+        const nextColumns = nextLine.split(/\s+/).filter(col => col.length > 0);
+        
+        if (currentColumns.length >= 3 && nextColumns.length >= 3) {
+          // Check if both lines have similar column structure
+          const hasSimilarStructure = Math.abs(currentColumns.length - nextColumns.length) <= 1;
+          
+          if (hasSimilarStructure) {
+            // Check if it looks like header + data pattern
+            const currentIsHeader = currentColumns.every(col => 
+              col === col.toUpperCase() && col.length > 1
+            );
+            
+            const nextIsData = nextColumns.some(col => 
+              col !== col.toUpperCase() || col.length <= 1 || /\d/.test(col)
+            );
+            
+            if (currentIsHeader && nextIsData) {
+              return true;
+            }
           }
         }
       }

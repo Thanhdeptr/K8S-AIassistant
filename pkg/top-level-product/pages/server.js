@@ -494,12 +494,19 @@ const truncate = (s, n) =>
 
 // ====== VÒNG LẶP TOOL-CALLING (thuần Ollama) ======
 async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
-    const messages = userMessages.slice();
+        const messages = userMessages.slice();
     messages.push({
-        role: 'system',
-        content:
-            'Khi thao tác Kubernetes, hãy gọi function thích hợp (đừng đoán). ' +
-            'Nếu gọi tool thì chờ kết quả tool trước khi trả lời.',
+      role: 'system',
+      content:
+        'Khi thao tác Kubernetes, hãy gọi function thích hợp (đừng đoán). ' +
+        'Nếu gọi tool thì chờ kết quả tool trước khi trả lời. ' +
+        'Khi trả về dữ liệu dạng bảng (như danh sách pods, services, etc.), ' +
+        'hãy thêm "isMarkTable:true" ở đầu dòng đầu tiên để chỉ định đây là bảng. ' +
+        'Ví dụ:\n' +
+        'isMarkTable:true\n' +
+        'NAME    READY   STATUS    RESTARTS   AGE\n' +
+        'pod1    1/1     Running   0          1d\n' +
+        'pod2    1/1     Running   0          1d',
     });
 
     let guard = 0;
