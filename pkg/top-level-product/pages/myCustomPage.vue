@@ -2,7 +2,8 @@
   <div class="chat-widget">
     <div class="chat-header">
       <div class="header-left">
-        🤖 <span>AI Assistant</span>
+        <img class="header-logo" :src="logoSrc" alt="AI Assistant" />
+        <span>AI Assistant</span>
       </div>
       <div class="header-right">
         <span class="message-count" :title="`Có ${messages.length} tin nhắn trong lịch sử`">
@@ -124,6 +125,7 @@ export default {
   data() {
     return {
       userInput: "",
+      logoSrc: require('./images/Kubernetes-Logo.wine.png'),
       messages: [
         { role: "bot", text: "Xin chào! Tôi có thể giúp gì cho bạn hôm nay?" }
       ],
@@ -759,14 +761,19 @@ export default {
   justify-content: space-between;
   align-items: center;
   font-size: 18px;
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
+  border-radius: 0;
 }
 
 .header-left span {
-  font-size: 20px;
-  font-weight: 700;
-  margin-left: 8px;
+  font-size: 26px;
+  font-weight: 800;
+  margin-left: 10px;
+}
+
+.header-logo {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 
 .header-right {
@@ -984,7 +991,8 @@ export default {
   flex: 1;
   padding: 10px;
   border: none;
-  border-bottom-left-radius: 12px;
+  border-bottom-left-radius: 0;
+  border-radius: 0;
   outline: none;
 }
 
@@ -999,6 +1007,7 @@ export default {
   border: none;
   cursor: pointer;
   font-size: 14px;
+  border-radius: 0;
 }
 
 .chat-input button:first-child {
@@ -1006,7 +1015,7 @@ export default {
 }
 
 .chat-input button:last-child {
-  border-bottom-right-radius: 12px;
+  border-bottom-right-radius: 0;
 }
 
 .chat-input button:hover {
