@@ -11,6 +11,13 @@
         <span class="storage-info" :title="storageInfo">
           💾 {{ formatStorageSize() }}
         </span>
+        <button 
+          @click="confirmClearHistory" 
+          class="header-delete-btn" 
+          title="Xóa lịch sử chat"
+        >
+          ×
+        </button>
       </div>
     </div>
 
@@ -19,6 +26,7 @@
         v-for="(msg, index) in messages" 
         :key="index" 
         :class="['message', msg.role, { 'is-table': msg.isTable }]"
+        :data-message-index="index"
         @contextmenu="handleContextMenu($event, index)"
       >
         <!-- Message content wrapper -->
@@ -67,15 +75,7 @@
           </div>
         </div>
         
-        <!-- Delete button for individual message -->
-        <button 
-          v-if="index > 0" 
-          @click="deleteMessage(index)" 
-          class="message-delete-btn"
-          title="Xóa tin nhắn này"
-        >
-          ×
-        </button>
+
       </div>
     </div>
 
@@ -88,9 +88,7 @@
         <button v-if="isLoading" @click="stopRequest" class="stop-btn">
           ⏹️ Dừng
         </button>
-        <button @click="confirmClearHistory" class="clear-btn" title="Xóa lịch sử chat">
-          ×
-        </button>
+
       </div>
     </div>
   </div>
@@ -556,42 +554,231 @@ export default {
         this.messages.splice(index, 1);
         this.saveChatHistory();
         console.log(`🗑️ Đã xóa tin nhắn tại vị trí ${index}`);
+        this.showToast('🗑️ Đã xóa tin nhắn thành công!', 'success');
       }
     },
 
-    // Xử lý context menu (click chuột phải)
+    // Xử lý context menu (click chuột phải) - Tối ưu UX
     handleContextMenu(event, index) {
       event.preventDefault();
       
-      // Tạo context menu đơn giản
+      // Xóa tất cả context menu cũ trước khi tạo mới
+      this.removeAllContextMenus();
+      
+      // Tạo context menu với nhiều tùy chọn
       const menu = document.createElement('div');
       menu.className = 'context-menu';
       menu.innerHTML = `
-        <div class="context-menu-item" onclick="this.parentElement.remove(); window.deleteMessageAt(${index})">
-          🗑️ Xóa tin nhắn này
+        <div class="context-menu-item copy-item" data-action="copy" data-index="${index}">
+          <span class="menu-icon">📋</span>
+          <span class="menu-text">Sao chép tin nhắn</span>
+          <span class="menu-shortcut">Ctrl+C</span>
+        </div>
+        <div class="context-menu-item select-item" data-action="select" data-index="${index}">
+          <span class="menu-icon">📝</span>
+          <span class="menu-text">Chọn tất cả</span>
+          <span class="menu-shortcut">Ctrl+A</span>
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item delete-item" data-action="delete" data-index="${index}">
+          <span class="menu-icon">🗑️</span>
+          <span class="menu-text">Xóa tin nhắn</span>
+          <span class="menu-shortcut">Del</span>
         </div>
       `;
       
+      // Tính toán vị trí tối ưu để menu không bị cắt
+      const menuWidth = 220;
+      const menuHeight = 160;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      
+      let left = event.clientX;
+      let top = event.clientY;
+      
+      // Đảm bảo menu không vượt ra ngoài viewport
+      if (left + menuWidth > viewportWidth) {
+        left = viewportWidth - menuWidth - 10;
+      }
+      if (top + menuHeight > viewportHeight) {
+        top = viewportHeight - menuHeight - 10;
+      }
+      
       // Đặt vị trí menu
       menu.style.position = 'fixed';
-      menu.style.left = event.clientX + 'px';
-      menu.style.top = event.clientY + 'px';
-      menu.style.zIndex = '1000';
+      menu.style.left = left + 'px';
+      menu.style.top = top + 'px';
+      menu.style.zIndex = '10000';
+      menu.style.opacity = '0';
+      menu.style.transform = 'scale(0.9)';
       
       // Thêm vào body
       document.body.appendChild(menu);
       
-      // Xóa menu khi click ra ngoài
+      // Animation hiển thị
+      requestAnimationFrame(() => {
+        menu.style.transition = 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+        menu.style.opacity = '1';
+        menu.style.transform = 'scale(1)';
+      });
+      
+      // Xử lý click vào menu items
+      menu.addEventListener('click', (e) => {
+        const item = e.target.closest('.context-menu-item');
+        if (!item) return;
+        
+        const action = item.dataset.action;
+        const messageIndex = parseInt(item.dataset.index);
+        
+        switch (action) {
+          case 'copy':
+            this.copyMessage(messageIndex);
+            break;
+          case 'select':
+            this.selectMessage(messageIndex);
+            break;
+          case 'delete':
+            this.deleteMessage(messageIndex);
+            break;
+        }
+        
+        this.removeContextMenu(menu);
+      });
+      
+      // Xử lý keyboard shortcuts
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          this.removeContextMenu(menu);
+          document.removeEventListener('keydown', handleKeyDown);
+        } else if (e.key === 'Delete' && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          this.deleteMessage(index);
+          this.removeContextMenu(menu);
+          document.removeEventListener('keydown', handleKeyDown);
+        } else if (e.ctrlKey && e.key === 'c') {
+          e.preventDefault();
+          this.copyMessage(index);
+          this.removeContextMenu(menu);
+          document.removeEventListener('keydown', handleKeyDown);
+        } else if (e.ctrlKey && e.key === 'a') {
+          e.preventDefault();
+          this.selectMessage(index);
+          this.removeContextMenu(menu);
+          document.removeEventListener('keydown', handleKeyDown);
+        }
+      };
+      
+      document.addEventListener('keydown', handleKeyDown);
+      
+      // Xóa menu khi click ra ngoài hoặc scroll
       const removeMenu = () => {
+        this.removeContextMenu(menu);
+        document.removeEventListener('click', removeMenu);
+        document.removeEventListener('scroll', removeMenu);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+      
+      // Delay để tránh menu bị đóng ngay lập tức
+      setTimeout(() => {
+        document.addEventListener('click', removeMenu);
+        document.addEventListener('scroll', removeMenu);
+      }, 100);
+    },
+    
+    // Xóa context menu với animation
+    removeContextMenu(menu) {
+      if (!menu || !menu.parentElement) return;
+      
+      menu.style.transition = 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)';
+      menu.style.opacity = '0';
+      menu.style.transform = 'scale(0.9)';
+      
+      setTimeout(() => {
         if (menu.parentElement) {
           menu.parentElement.removeChild(menu);
         }
-        document.removeEventListener('click', removeMenu);
-      };
+      }, 150);
+    },
+    
+    // Xóa tất cả context menu
+    removeAllContextMenus() {
+      const menus = document.querySelectorAll('.context-menu');
+      menus.forEach(menu => this.removeContextMenu(menu));
+    },
+    
+    // Sao chép tin nhắn
+    copyMessage(index) {
+      try {
+        const message = this.messages[index];
+        let textToCopy = '';
+        
+        if (message.isLogs) {
+          textToCopy = message.logs.map(log => 
+            `${log.timestamp} [${log.level}] ${log.category}: ${log.message}`
+          ).join('\n');
+        } else if (message.isTable) {
+          textToCopy = message.text;
+        } else {
+          textToCopy = message.text;
+        }
+        
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          this.showToast('📋 Đã sao chép tin nhắn vào clipboard!', 'success');
+        }).catch(() => {
+          // Fallback cho trình duyệt cũ
+          const textArea = document.createElement('textarea');
+          textArea.value = textToCopy;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          this.showToast('📋 Đã sao chép tin nhắn vào clipboard!', 'success');
+        });
+      } catch (error) {
+        this.showToast('❌ Không thể sao chép tin nhắn', 'error');
+      }
+    },
+    
+    // Chọn tất cả text trong tin nhắn
+    selectMessage(index) {
+      const messageElement = document.querySelector(`[data-message-index="${index}"]`);
+      if (messageElement) {
+        const range = document.createRange();
+        range.selectNodeContents(messageElement);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        this.showToast('📝 Đã chọn tất cả nội dung tin nhắn', 'info');
+      }
+    },
+    
+    // Hiển thị toast notification
+    showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.innerHTML = `
+        <span class="toast-icon">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+        <span class="toast-message">${message}</span>
+      `;
       
+      document.body.appendChild(toast);
+      
+      // Animation hiển thị
+      requestAnimationFrame(() => {
+        toast.style.transform = 'translateY(0)';
+        toast.style.opacity = '1';
+      });
+      
+      // Tự động ẩn sau 3 giây
       setTimeout(() => {
-        document.addEventListener('click', removeMenu);
-      }, 100);
+        toast.style.transform = 'translateY(-100px)';
+        toast.style.opacity = '0';
+        setTimeout(() => {
+          if (toast.parentElement) {
+            toast.parentElement.removeChild(toast);
+          }
+        }, 300);
+      }, 3000);
     }
   }
 };
@@ -850,13 +1037,11 @@ export default {
 
 .chat-controls {
   display: flex;
-  flex-direction: row;
-  gap: 4px;
 }
 
 .chat-input button {
   padding: 10px 15px;
-  background-color: #004085;
+  background-color: #006cff;
   color: white;
   border: none;
   cursor: pointer;
@@ -872,7 +1057,7 @@ export default {
 }
 
 .chat-input button:hover {
-  background-color: #002855;
+  background-color: #0056b3;
 }
 
 .chat-input button:disabled {
@@ -881,74 +1066,143 @@ export default {
 }
 
 .stop-btn {
-  background-color: #004085 !important;
+  background-color: #006cff !important;
 }
 
 .stop-btn:hover {
-  background-color: #002855 !important;
+  background-color: #0056b3 !important;
 }
 
-.clear-btn {
-  background-color: #dc3545 !important;
-  padding: 10px 12px !important;
-}
 
-.clear-btn:hover {
-  background-color: #c82333 !important;
-}
 
-/* Message delete button */
-.message {
-  position: relative;
-}
-
-.message-delete-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
+/* Header delete button */
+.header-delete-btn {
+  width: 24px;
+  height: 24px;
   border: none;
-  background: rgba(0, 0, 0, 0.1);
-  color: #666;
+  background: #1e40af;
+  color: white;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: bold;
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  margin-left: 8px;
 }
 
-.message:hover .message-delete-btn {
-  display: flex;
+.header-delete-btn:hover {
+  background: #1d4ed8;
+  transform: scale(1.1);
 }
 
-.message-delete-btn:hover {
-  background: rgba(220, 53, 69, 0.8);
-  color: white;
-}
-
-/* Context menu */
+/* Context menu - Tối ưu UX */
 .context-menu {
   background: white;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px 0;
-  min-width: 150px;
+  border: 1px solid #e1e5e9;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  padding: 8px 0;
+  min-width: 220px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .context-menu-item {
-  padding: 8px 12px;
+  padding: 12px 16px;
   cursor: pointer;
   font-size: 14px;
-  transition: background-color 0.2s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  user-select: none;
 }
 
 .context-menu-item:hover {
-  background-color: #f8f9fa;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  transform: translateX(2px);
+}
+
+.context-menu-item:active {
+  background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+  transform: translateX(1px);
+}
+
+.menu-icon {
+  margin-right: 12px;
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.menu-text {
+  flex: 1;
+  font-weight: 500;
+  color: #495057;
+}
+
+.menu-shortcut {
+  font-size: 12px;
+  color: #6c757d;
+  background: #f8f9fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #e9ecef 50%, transparent 100%);
+  margin: 4px 0;
+}
+
+/* Toast notifications */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 10001;
+  transform: translateY(-100px);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: 300px;
+  backdrop-filter: blur(10px);
+}
+
+.toast-success {
+  border-left: 4px solid #28a745;
+}
+
+.toast-error {
+  border-left: 4px solid #dc3545;
+}
+
+.toast-info {
+  border-left: 4px solid #17a2b8;
+}
+
+.toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.toast-message {
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+  line-height: 1.4;
 }
 
 /* Responsive design */
