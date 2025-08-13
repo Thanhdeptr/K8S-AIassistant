@@ -15,49 +15,67 @@
     </div>
 
     <div class="chat-messages">
-      <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role, { 'is-table': msg.isTable }]">
-        <!-- Regular text message -->
-        <div v-if="!msg.isLogs && !msg.isTable" class="message-text">
-          {{ msg.text }}
-        </div>
-        
-        <!-- Formatted logs display -->
-        <div v-if="msg.isLogs" class="logs-container">
-          <div class="logs-header">
-            <span class="logs-title">📋 Kubernetes Logs</span>
-            <span class="logs-count">{{ msg.logs.length }} entries</span>
+      <div 
+        v-for="(msg, index) in messages" 
+        :key="index" 
+        :class="['message', msg.role, { 'is-table': msg.isTable }]"
+        @contextmenu="handleContextMenu($event, index)"
+      >
+        <!-- Message content wrapper -->
+        <div class="message-content">
+          <!-- Regular text message -->
+          <div v-if="!msg.isLogs && !msg.isTable" class="message-text">
+            {{ msg.text }}
           </div>
-          <div class="logs-content">
-            <div v-for="(log, logIndex) in msg.logs" :key="logIndex" class="log-entry">
-              <div class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</div>
-              <div class="log-level" :class="getLogLevelClass(log.level)">
-                {{ log.level }}
+        
+          <!-- Formatted logs display -->
+          <div v-if="msg.isLogs" class="logs-container">
+            <div class="logs-header">
+              <span class="logs-title">📋 Kubernetes Logs</span>
+              <span class="logs-count">{{ msg.logs.length }} entries</span>
+            </div>
+            <div class="logs-content">
+              <div v-for="(log, logIndex) in msg.logs" :key="logIndex" class="log-entry">
+                <div class="log-timestamp">{{ formatTimestamp(log.timestamp) }}</div>
+                <div class="log-level" :class="getLogLevelClass(log.level)">
+                  {{ log.level }}
+                </div>
+                <div class="log-category">{{ log.category }}</div>
+                <div class="log-message">{{ log.message }}</div>
               </div>
-              <div class="log-category">{{ log.category }}</div>
-              <div class="log-message">{{ log.message }}</div>
             </div>
           </div>
-        </div>
 
-        <!-- Formatted markdown table display -->
-        <div v-if="msg.isTable" class="table-container">
-          <div v-if="msg.preamble" class="message-text table-preamble">{{ msg.preamble }}</div>
-          <div class="table-content">
-            <table class="markdown-table">
-              <thead>
-                <tr>
-                  <th v-for="(h, i) in msg.table.headers" :key="i">{{ h }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(row, rIdx) in msg.table.rows" :key="rIdx">
-                  <td v-for="(cell, cIdx) in row" :key="cIdx">{{ cell }}</td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- Formatted markdown table display -->
+          <div v-if="msg.isTable" class="table-container">
+            <div v-if="msg.preamble" class="message-text table-preamble">{{ msg.preamble }}</div>
+            <div class="table-content">
+              <table class="markdown-table">
+                <thead>
+                  <tr>
+                    <th v-for="(h, i) in msg.table.headers" :key="i">{{ h }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, rIdx) in msg.table.rows" :key="rIdx">
+                    <td v-for="(cell, cIdx) in row" :key="cIdx">{{ cell }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="msg.afterText" class="message-text table-after">{{ msg.afterText }}</div>
           </div>
-          <div v-if="msg.afterText" class="message-text table-after">{{ msg.afterText }}</div>
         </div>
+        
+        <!-- Delete button for individual message -->
+        <button 
+          v-if="index > 0" 
+          @click="deleteMessage(index)" 
+          class="message-delete-btn"
+          title="Xóa tin nhắn này"
+        >
+          ×
+        </button>
       </div>
     </div>
 
@@ -70,8 +88,8 @@
         <button v-if="isLoading" @click="stopRequest" class="stop-btn">
           ⏹️ Dừng
         </button>
-        <button @click="clearChatHistory" class="clear-btn" title="Xóa lịch sử chat">
-          🗑️
+        <button @click="confirmClearHistory" class="clear-btn" title="Xóa lịch sử chat">
+          ×
         </button>
       </div>
     </div>
@@ -109,6 +127,11 @@ export default {
     // Khôi phục lịch sử chat khi component được mount
     this.loadChatHistory();
     this.updateStorageInfo();
+    
+    // Thêm global function để context menu có thể gọi
+    window.deleteMessageAt = (index) => {
+      this.deleteMessage(index);
+    };
   },
   methods: {
     // Lưu lịch sử chat vào localStorage
@@ -518,6 +541,57 @@ export default {
       } catch (error) {
         this.storageInfo = 'Không thể tính toán storage usage';
       }
+    },
+
+    // Xác nhận trước khi xóa toàn bộ lịch sử
+    confirmClearHistory() {
+      if (confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử chat? Hành động này không thể hoàn tác.')) {
+        this.clearChatHistory();
+      }
+    },
+
+    // Xóa tin nhắn cụ thể
+    deleteMessage(index) {
+      if (confirm('Bạn có chắc chắn muốn xóa tin nhắn này?')) {
+        this.messages.splice(index, 1);
+        this.saveChatHistory();
+        console.log(`🗑️ Đã xóa tin nhắn tại vị trí ${index}`);
+      }
+    },
+
+    // Xử lý context menu (click chuột phải)
+    handleContextMenu(event, index) {
+      event.preventDefault();
+      
+      // Tạo context menu đơn giản
+      const menu = document.createElement('div');
+      menu.className = 'context-menu';
+      menu.innerHTML = `
+        <div class="context-menu-item" onclick="this.parentElement.remove(); window.deleteMessageAt(${index})">
+          🗑️ Xóa tin nhắn này
+        </div>
+      `;
+      
+      // Đặt vị trí menu
+      menu.style.position = 'fixed';
+      menu.style.left = event.clientX + 'px';
+      menu.style.top = event.clientY + 'px';
+      menu.style.zIndex = '1000';
+      
+      // Thêm vào body
+      document.body.appendChild(menu);
+      
+      // Xóa menu khi click ra ngoài
+      const removeMenu = () => {
+        if (menu.parentElement) {
+          menu.parentElement.removeChild(menu);
+        }
+        document.removeEventListener('click', removeMenu);
+      };
+      
+      setTimeout(() => {
+        document.addEventListener('click', removeMenu);
+      }, 100);
     }
   }
 };
@@ -819,6 +893,60 @@ export default {
 
 .clear-btn:hover {
   background-color: #c82333 !important;
+}
+
+/* Message delete button */
+.message {
+  position: relative;
+}
+
+.message-delete-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: rgba(0, 0, 0, 0.1);
+  color: #666;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.message:hover .message-delete-btn {
+  display: flex;
+}
+
+.message-delete-btn:hover {
+  background: rgba(220, 53, 69, 0.8);
+  color: white;
+}
+
+/* Context menu */
+.context-menu {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  min-width: 150px;
+}
+
+.context-menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.context-menu-item:hover {
+  background-color: #f8f9fa;
 }
 
 /* Responsive design */
