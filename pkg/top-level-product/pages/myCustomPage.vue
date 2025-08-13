@@ -475,12 +475,19 @@ export default {
           afterText = lines.slice(lastRowLine + 1).join('\n');
         }
       } else {
-        // Check if it's a plain text table (space-separated)
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.includes('NAMESPACE') && line.includes('NAME') && line.includes('STATUS')) {
-            headerIdx = i;
-            break;
+        // Generic plain-text table detection (spacing-based, header/data heuristic)
+        const splitCols = (s) => s.split(/\s{2,}/).map(x => x.trim()).filter(Boolean);
+
+        // Find header by looking for two consecutive lines with 3+ columns
+        // where the first line is mostly uppercase (header-like) and the next has numbers or lowercase (data-like)
+        for (let i = 0; i < lines.length - 1; i++) {
+          const cols = splitCols(lines[i]);
+          const nextCols = splitCols(lines[i + 1]);
+          if (cols.length >= 3 && nextCols.length >= 3) {
+            const headerLikeCount = cols.filter(c => c === c.toUpperCase()).length;
+            const headerLike = headerLikeCount / cols.length >= 0.6;
+            const dataLike = nextCols.some(c => /\d/.test(c) || c !== c.toUpperCase());
+            if (headerLike && dataLike) { headerIdx = i; break; }
           }
         }
 
@@ -490,29 +497,27 @@ export default {
             preamble = lines.slice(0, headerIdx).join('\n');
           }
 
-          // Parse plain text table headers
-          const headerLine = lines[headerIdx];
-          const headerParts = headerLine.split(/\s+/);
-          result.headers = headerParts.filter(part => part.length > 0);
+          // Headers
+          result.headers = splitCols(lines[headerIdx]);
 
-          // Parse rows
+          // Rows
           let lastRowLine = headerIdx;
           for (let i = headerIdx + 1; i < lines.length; i++) {
             const line = lines[i];
-            if (!line || line.length === 0) continue;
-            
-            // Skip code block markers
-            if (line.includes('```')) continue;
-            
-            // Parse space-separated values
-            const parts = line.split(/\s+/);
-            if (parts.length >= 3) {
+            if (!line || line.trim().length === 0) break;
+            if (line.includes('```')) continue; // skip code block markers
+
+            const parts = splitCols(line);
+            if (parts.length >= 2) {
               const row = [];
               for (let c = 0; c < result.headers.length; c++) {
                 row.push(parts[c] !== undefined ? parts[c] : '');
               }
               result.rows.push(row);
               lastRowLine = i;
+            } else {
+              // stop if structure breaks
+              break;
             }
           }
 
