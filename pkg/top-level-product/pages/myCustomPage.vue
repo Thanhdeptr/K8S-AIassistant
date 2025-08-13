@@ -2,13 +2,7 @@
   <div class="chat-widget">
     <div class="chat-header">
       <div class="header-left">
-        <svg class="kubernetes-logo" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="white"/>
-          <path d="M2 17L12 22L22 17V7L12 12L2 7V17Z" fill="white"/>
-          <path d="M12 12L12 22" stroke="white" stroke-width="2"/>
-          <circle cx="12" cy="12" r="3" fill="white"/>
-        </svg>
-        <span>AI Assistant</span>
+        🤖 <span>AI Assistant</span>
       </div>
       <div class="header-right">
         <span class="message-count" :title="`Có ${messages.length} tin nhắn trong lịch sử`">
@@ -737,20 +731,16 @@ export default {
 
 <style scoped>
 .chat-widget {
-  width: 100vw;
-  height: 100vh;
-  margin: 0;
-  border: none;
-  border-radius: 0;
+  width: 100%;
+  height: 90vh;
+  margin: 30px auto;
+  border: 1px solid #ccc;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   background: white;
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   font-family: Arial, sans-serif;
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1000;
 }
 
 .chat-header {
@@ -762,20 +752,14 @@ export default {
   justify-content: space-between;
   align-items: center;
   font-size: 18px;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
 }
 
 .header-left span {
   font-size: 20px;
   font-weight: 700;
   margin-left: 8px;
-}
-
-.kubernetes-logo {
-  width: 24px;
-  height: 24px;
-  margin-right: 8px;
 }
 
 .header-right {
@@ -993,7 +977,7 @@ export default {
   flex: 1;
   padding: 10px;
   border: none;
-  border-bottom-left-radius: 0;
+  border-bottom-left-radius: 12px;
   outline: none;
 }
 
@@ -1015,7 +999,7 @@ export default {
 }
 
 .chat-input button:last-child {
-  border-bottom-right-radius: 0;
+  border-bottom-right-radius: 12px;
 }
 
 .chat-input button:hover {

@@ -69,7 +69,7 @@ class MCPHttpClient {
         }
 
         // Thử session recovery nếu có sessionId
-        if (this.sessionId && this.connectionState === 'disconnected') {
+        if (this.sessionId && (this.connectionState === 'disconnected' || this.connectionState === 'reconnecting')) {
             console.log('🔄 Attempting session recovery with ID:', this.sessionId);
             try {
                 return await this._attemptSessionRecovery();
