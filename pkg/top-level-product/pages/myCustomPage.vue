@@ -1,6 +1,18 @@
 <template>
   <div class="chat-widget">
-    <div class="chat-header">🤖 <span>AI Assistant</span></div>
+    <div class="chat-header">
+      <div class="header-left">
+        🤖 <span>AI Assistant</span>
+      </div>
+      <div class="header-right">
+        <span class="message-count" :title="`Có ${messages.length} tin nhắn trong lịch sử`">
+          💬 {{ messages.length }}
+        </span>
+        <span class="storage-info" :title="storageInfo">
+          💾 {{ formatStorageSize() }}
+        </span>
+      </div>
+    </div>
 
     <div class="chat-messages">
       <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role, { 'is-table': msg.isTable }]">
@@ -51,12 +63,17 @@
 
     <div class="chat-input">
       <input v-model="userInput" type="text" placeholder="Nhập tin nhắn..." @keyup.enter="sendMessage" />
-      <button v-if="!isLoading" @click="sendMessage">
-        Gửi
-      </button>
-      <button v-if="isLoading" @click="stopRequest" class="stop-btn">
-        ⏹️ Dừng
-      </button>
+      <div class="chat-controls">
+        <button v-if="!isLoading" @click="sendMessage">
+          Gửi
+        </button>
+        <button v-if="isLoading" @click="stopRequest" class="stop-btn">
+          ⏹️ Dừng
+        </button>
+        <button @click="clearChatHistory" class="clear-btn" title="Xóa lịch sử chat">
+          🗑️
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -72,9 +89,107 @@ export default {
       ],
       isLoading: false,
       abortController: null,
+      localStorageKey: 'chatbot-messages', // Key cho localStorage
+      maxMessages: 100, // Giới hạn số tin nhắn lưu trữ
+      storageInfo: '', // Thông tin về localStorage usage
     };
   },
+  computed: {
+    // Tính toán kích thước storage được sử dụng
+    storageUsage() {
+      try {
+        const saved = localStorage.getItem(this.localStorageKey);
+        return saved ? saved.length : 0;
+      } catch {
+        return 0;
+      }
+    }
+  },
+  mounted() {
+    // Khôi phục lịch sử chat khi component được mount
+    this.loadChatHistory();
+    this.updateStorageInfo();
+  },
   methods: {
+    // Lưu lịch sử chat vào localStorage
+    saveChatHistory() {
+      try {
+        // Chỉ lưu tối đa maxMessages tin nhắn gần nhất
+        const messagesToSave = this.messages.slice(-this.maxMessages);
+        const chatData = {
+          messages: messagesToSave,
+          timestamp: Date.now(),
+          version: '1.0' // Để xử lý migration trong tương lai
+        };
+        localStorage.setItem(this.localStorageKey, JSON.stringify(chatData));
+        console.log('💾 Đã lưu lịch sử chat vào localStorage');
+        this.updateStorageInfo();
+      } catch (error) {
+        console.warn('❌ Không thể lưu lịch sử chat:', error);
+      }
+    },
+
+    // Tải lịch sử chat từ localStorage
+    loadChatHistory() {
+      try {
+        const saved = localStorage.getItem(this.localStorageKey);
+        if (saved) {
+          const chatData = JSON.parse(saved);
+          
+          // Kiểm tra version và structure
+          if (chatData.version && chatData.messages && Array.isArray(chatData.messages)) {
+            // Kiểm tra xem dữ liệu có quá cũ không (7 ngày)
+            const now = Date.now();
+            const savedTime = chatData.timestamp || 0;
+            const daysDiff = (now - savedTime) / (1000 * 60 * 60 * 24);
+            
+            if (daysDiff < 7) {
+              this.messages = chatData.messages.length > 0 ? chatData.messages : [
+                { role: "bot", text: "Xin chào! Tôi có thể giúp gì cho bạn hôm nay?" }
+              ];
+              console.log('📂 Đã khôi phục lịch sử chat từ localStorage');
+            } else {
+              console.log('🗑️ Dữ liệu chat cũ hơn 7 ngày, bắt đầu cuộc hội thoại mới');
+              this.clearChatHistory();
+            }
+          } else {
+            console.log('🔄 Dữ liệu chat cũ không tương thích, bắt đầu cuộc hội thoại mới');
+            this.clearChatHistory();
+          }
+        }
+      } catch (error) {
+        console.warn('❌ Không thể tải lịch sử chat:', error);
+      }
+    },
+
+    // Xóa lịch sử chat
+    clearChatHistory() {
+      try {
+        localStorage.removeItem(this.localStorageKey);
+        this.messages = [
+          { role: "bot", text: "Xin chào! Tôi có thể giúp gì cho bạn hôm nay?" }
+        ];
+        console.log('🗑️ Đã xóa lịch sử chat');
+        this.updateStorageInfo();
+      } catch (error) {
+        console.warn('❌ Không thể xóa lịch sử chat:', error);
+      }
+    },
+
+    // Làm sạch tin nhắn cũ khi vượt quá giới hạn
+    cleanupOldMessages() {
+      if (this.messages.length > this.maxMessages) {
+        const keepMessages = this.messages.slice(-this.maxMessages);
+        // Luôn giữ tin nhắn chào đầu tiên nếu có
+        const firstBotMessage = this.messages.find(msg => msg.role === 'bot');
+        if (firstBotMessage && !keepMessages.includes(firstBotMessage)) {
+          keepMessages.unshift(firstBotMessage);
+        }
+        this.messages = keepMessages;
+        console.log('🧹 Đã làm sạch tin nhắn cũ');
+      }
+    },
+
     async sendMessage() {
       const text = this.userInput.trim();
       if (!text || this.isLoading) return;
@@ -140,6 +255,10 @@ export default {
           this.messages.push({ role: "bot", text: "❌ Không nhận được phản hồi từ Ollama." });
         }
 
+        // Làm sạch tin nhắn cũ và lưu lịch sử sau khi nhận phản hồi
+        this.cleanupOldMessages();
+        this.saveChatHistory();
+
       } catch (err) {
         console.error("Fetch error:", err);
         // Chỉ hiển thị lỗi nếu không phải do cancel
@@ -149,6 +268,9 @@ export default {
       } finally {
         this.isLoading = false;
         this.abortController = null;
+        
+        // Lưu lịch sử ngay cả khi có lỗi (để lưu tin nhắn người dùng)
+        this.saveChatHistory();
       }
     },
 
@@ -369,6 +491,33 @@ export default {
       if (this.abortController) {
         this.abortController.abort();
       }
+    },
+
+    // Format kích thước storage để hiển thị
+    formatStorageSize() {
+      const bytes = this.storageUsage;
+      if (bytes === 0) return '0 B';
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    },
+
+    // Cập nhật thông tin storage
+    updateStorageInfo() {
+      try {
+        const totalUsed = JSON.stringify(localStorage).length;
+        const chatUsed = this.storageUsage;
+        const maxStorage = 5 * 1024 * 1024; // Giả định 5MB limit cho localStorage
+        
+        this.storageInfo = [
+          `Chat: ${this.formatStorageSize(chatUsed)}`,
+          `Total LocalStorage: ${this.formatStorageSize(totalUsed)}`,
+          `Max: ${this.formatStorageSize(maxStorage)}`,
+          `Usage: ${((totalUsed / maxStorage) * 100).toFixed(1)}%`
+        ].join('\n');
+      } catch (error) {
+        this.storageInfo = 'Không thể tính toán storage usage';
+      }
     }
   }
 };
@@ -393,15 +542,40 @@ export default {
   color: white;
   padding: 12px;
   font-weight: bold;
-  text-align: center;
-  font-size: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 18px;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
 }
 
-.chat-header span {
-  font-size: 22px;
+.header-left span {
+  font-size: 20px;
   font-weight: 700;
+  margin-left: 8px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.message-count,
+.storage-info {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: help;
+}
+
+.message-count:hover,
+.storage-info:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .chat-messages {
@@ -600,12 +774,24 @@ export default {
   outline: none;
 }
 
+.chat-controls {
+  display: flex;
+}
+
 .chat-input button {
-  padding: 10px 20px;
+  padding: 10px 15px;
   background-color: #006cff;
   color: white;
   border: none;
   cursor: pointer;
+  font-size: 14px;
+}
+
+.chat-input button:first-child {
+  border-bottom-right-radius: 0;
+}
+
+.chat-input button:last-child {
   border-bottom-right-radius: 12px;
 }
 
@@ -624,6 +810,15 @@ export default {
 
 .stop-btn:hover {
   background-color: #0056b3 !important;
+}
+
+.clear-btn {
+  background-color: #dc3545 !important;
+  padding: 10px 12px !important;
+}
+
+.clear-btn:hover {
+  background-color: #c82333 !important;
 }
 
 /* Responsive design */
