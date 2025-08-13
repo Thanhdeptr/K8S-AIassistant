@@ -850,11 +850,13 @@ export default {
 
 .chat-controls {
   display: flex;
+  flex-direction: row;
+  gap: 4px;
 }
 
 .chat-input button {
   padding: 10px 15px;
-  background-color: #006cff;
+  background-color: #004085;
   color: white;
   border: none;
   cursor: pointer;
@@ -870,7 +872,7 @@ export default {
 }
 
 .chat-input button:hover {
-  background-color: #0056b3;
+  background-color: #002855;
 }
 
 .chat-input button:disabled {
@@ -879,11 +881,11 @@ export default {
 }
 
 .stop-btn {
-  background-color: #006cff !important;
+  background-color: #004085 !important;
 }
 
 .stop-btn:hover {
-  background-color: #0056b3 !important;
+  background-color: #002855 !important;
 }
 
 .clear-btn {

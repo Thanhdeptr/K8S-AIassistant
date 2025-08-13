@@ -273,12 +273,18 @@ class MCPHttpClient {
                     
                     // Handle 410 Gone - Session inactive
                     if (r.status === 410) {
+                        console.log('🔍 Received 410 error, parsing response...');
                         try {
                             const errorData = JSON.parse(t);
+                            console.log('🔍 Parsed 410 error data:', errorData);
                             if (errorData.error?.data?.action === 'reconnect_sse') {
+                                console.log('🔄 Detected reconnect_sse action, throwing reconnect error');
                                 throw new Error('Session inactive - need SSE reconnect');
+                            } else {
+                                console.log('❌ No reconnect_sse action found in 410 response');
                             }
                         } catch (parseError) {
+                            console.log('❌ Failed to parse 410 JSON:', parseError.message);
                             // Fallback nếu không parse được JSON
                         }
                     }
@@ -300,12 +306,14 @@ class MCPHttpClient {
                 console.log(`❌ MCP RPC attempt ${attempt + 1} failed:`, error.message);
                 
                 // Nếu là lỗi session, thử reconnect
+                console.log(`🔍 Checking if error is session-related: "${error.message}"`);
                 if (error.message.includes('SSE connection not established') || 
                     error.message.includes('SSE closed') ||
                     error.message.includes('timeout') ||
                     error.message.includes('Session not found') ||
                     error.message.includes('Session inactive - need SSE reconnect')) {
                     
+                    console.log(`✅ Error is session-related, checking retry attempts...`);
                     if (attempt < this._maxReconnectAttempts) {
                         console.log(`🔄 Session error detected, attempting reconnect (${attempt + 1}/${this._maxReconnectAttempts})...`);
                         this.connectionState = 'reconnecting';
@@ -315,7 +323,11 @@ class MCPHttpClient {
                         // Delay trước khi thử lại
                         await new Promise(resolve => setTimeout(resolve, this._reconnectDelay * (attempt + 1)));
                         continue;
+                    } else {
+                        console.log(`❌ Max retry attempts reached (${this._maxReconnectAttempts})`);
                     }
+                } else {
+                    console.log(`❌ Error is not session-related, not retrying`);
                 }
                 
                 // Nếu không phải lỗi session hoặc đã hết attempts, throw error
