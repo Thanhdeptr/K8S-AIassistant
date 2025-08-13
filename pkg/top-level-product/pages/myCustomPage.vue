@@ -730,17 +730,24 @@ export default {
 </script>
 
 <style scoped>
+/* Global styles for better layout */
+:global(*) {
+  box-sizing: border-box;
+}
 .chat-widget {
   width: 100%;
-  height: 90vh;
-  margin: 30px auto;
-  border: 1px solid #ccc;
-  border-radius: 12px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   background: white;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: none;
   font-family: Arial, sans-serif;
+  position: relative;
+  overflow: hidden;
 }
 
 .chat-header {
