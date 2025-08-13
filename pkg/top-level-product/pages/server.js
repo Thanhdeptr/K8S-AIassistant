@@ -500,13 +500,14 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
       content:
         'Khi thao tác Kubernetes, hãy gọi function thích hợp (đừng đoán). ' +
         'Nếu gọi tool thì chờ kết quả tool trước khi trả lời. ' +
-        'Khi trả về dữ liệu dạng bảng (như danh sách pods, services, etc.), ' +
-        'hãy thêm "isMarkTable:true" ở đầu dòng đầu tiên để chỉ định đây là bảng. ' +
+        'QUAN TRỌNG: Khi nhận được kết quả từ kubectl get (pods, services, deployments, etc.), ' +
+        'hãy giữ nguyên format table và thêm "isMarkTable:true" ở đầu dòng đầu tiên. ' +
+        'KHÔNG thay đổi format của table, chỉ thêm marker này. ' +
         'Ví dụ:\n' +
         'isMarkTable:true\n' +
-        'NAME    READY   STATUS    RESTARTS   AGE\n' +
-        'pod1    1/1     Running   0          1d\n' +
-        'pod2    1/1     Running   0          1d',
+        'NAME                                       READY   STATUS    RESTARTS   AGE   IP             NODE      NOMINATED NODE   READINESS GATES\n' +
+        'mongodb-0                                  1/1     Running   0          12d   10.244.0.117   testmcp   <none>           <none>\n' +
+        'todo-backend-app-deploy-7889844d96-b85th   1/1     Running   0          11d   10.244.0.127   testmcp   <none>           <none>',
     });
 
     let guard = 0;
@@ -546,6 +547,21 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
                             : JSON.stringify(mcpRes.content);
                     } else {
                         toolOutput = JSON.stringify(mcpRes);
+                    }
+                    
+                    // Tự động thêm isMarkTable:true cho các lệnh kubectl get
+                    if (name.includes('kubectl_get') && toolOutput && !toolOutput.includes('isMarkTable:true')) {
+                        // Kiểm tra nếu output có dạng table (có header và data)
+                        const lines = toolOutput.split('\n').filter(line => line.trim());
+                        if (lines.length >= 2) {
+                            const firstLine = lines[0];
+                            const secondLine = lines[1];
+                            
+                            // Kiểm tra nếu có header và data
+                            if (firstLine.includes('NAME') && secondLine && !secondLine.includes('NAME')) {
+                                toolOutput = 'isMarkTable:true\n' + toolOutput;
+                            }
+                        }
                     }
                 } catch (e) {
                     toolOutput = `ERROR from MCP: ${e.message}`;
