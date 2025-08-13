@@ -61,6 +61,8 @@ class MCPHttpClient {
     }
 
     async connect() {
+        console.log(`🔍 connect() called - sessionPath: ${this.sessionPath}, connectionState: ${this.connectionState}, sessionId: ${this.sessionId}`);
+        
         if (this.sessionPath && this.connectionState === 'connected') {
             console.log('🔗 Reusing existing MCP session:', this.sessionPath);
             return this.sessionPath;
@@ -195,6 +197,7 @@ class MCPHttpClient {
         
         // Thử kết nối lại với session ID cũ
         const recoveryUrl = `${this.base}/sse?sessionId=${this.sessionId}`;
+        console.log('🔄 Making GET request to:', recoveryUrl);
         this.controller = new AbortController();
         
         const r = await fetch(recoveryUrl, {
@@ -203,6 +206,7 @@ class MCPHttpClient {
             signal: this.controller.signal,
         });
 
+        console.log('🔄 Recovery response status:', r.status);
         if (!r.ok) {
             throw new Error(`Session recovery failed: HTTP ${r.status}`);
         }
@@ -322,6 +326,8 @@ class MCPHttpClient {
                         this.connectionState = 'reconnecting';
                         this.sessionPath = null; // Reset để force reconnect
                         // Giữ sessionId để thử recovery trước khi tạo mới
+                        
+                        console.log(`🔄 Will call connect() to resume session: ${this.sessionId}`);
                         
                         // Delay trước khi thử lại
                         await new Promise(resolve => setTimeout(resolve, this._reconnectDelay * (attempt + 1)));

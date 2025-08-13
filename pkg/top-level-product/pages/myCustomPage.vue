@@ -76,7 +76,7 @@
           </div>
                 </div>
         
-        <!-- Message menu (3 dots) -->
+        <!-- Message menu (3 dots) - bên ngoài tin nhắn -->
         <div 
           v-if="hoveredMessageIndex === index" 
           :class="['message-menu-trigger', msg.role === 'user' ? 'user-menu' : 'bot-menu']"
@@ -85,13 +85,12 @@
           ⋯
         </div>
         
-        <!-- Message options menu -->
+        <!-- Message options menu - bên ngoài tin nhắn -->
         <div 
           v-if="activeMessageMenu === index" 
-          class="message-options-menu"
-          :style="getMenuPosition(index)"
+          :class="['message-options-menu', msg.role === 'user' ? 'user-menu' : 'bot-menu']"
+          :style="getMenuPosition(index, msg.role)"
         >
-          <div class="menu-arrow"></div>
           <div class="menu-item" @click="deleteMessage(index)">
             Xóa
           </div>
@@ -99,6 +98,8 @@
             Sao chép
           </div>
         </div>
+        
+
       </div>
     </div>
 
@@ -624,23 +625,34 @@ export default {
 
     
     // Tính toán vị trí menu
-    getMenuPosition(index) {
+    getMenuPosition(index, role) {
       const messageElement = document.querySelector(`[data-message-index="${index}"]`);
       if (!messageElement) return {};
       
       const rect = messageElement.getBoundingClientRect();
-      const menuWidth = 180;
-      const menuHeight = 160;
+      const menuWidth = 135; // Nhỏ hơn 25% (từ 180 xuống 135)
+      const menuHeight = 120; // Nhỏ hơn 25% (từ 160 xuống 120)
       
-      // Đặt menu ở bên phải tin nhắn
-      let left = rect.right + 10;
-      let top = rect.top;
+      let left, top;
+      
+      if (role === 'user') {
+        // Menu bên trái tin nhắn user
+        left = rect.left - menuWidth - 10;
+      } else {
+        // Menu bên phải tin nhắn bot
+        left = rect.right + 10;
+      }
+      
+      top = rect.top;
       
       // Đảm bảo menu không vượt ra ngoài viewport
-      if (left + menuWidth > window.innerWidth) {
-        left = rect.left - menuWidth - 10;
+      if (left < 10) {
+        left = 10;
       }
-      if (top + menuHeight > window.innerHeight) {
+      if (left + menuWidth > window.innerWidth - 10) {
+        left = window.innerWidth - menuWidth - 10;
+      }
+      if (top + menuHeight > window.innerHeight - 20) {
         top = window.innerHeight - menuHeight - 20;
       }
       
@@ -1032,7 +1044,7 @@ export default {
   transform: scale(1.1);
 }
 
-/* Message menu trigger (3 dots) */
+/* Message menu trigger (3 dots) - bên ngoài tin nhắn */
 .message-menu-trigger {
   position: absolute;
   top: 8px;
@@ -1051,14 +1063,14 @@ export default {
   z-index: 1000;
 }
 
-/* Vị trí cho tin nhắn user (bên trái) */
+/* Vị trí cho tin nhắn user (bên trái tin nhắn) */
 .message-menu-trigger.user-menu {
-  left: 8px;
+  left: -32px;
 }
 
-/* Vị trí cho tin nhắn bot (bên phải) */
+/* Vị trí cho tin nhắn bot (bên phải tin nhắn) */
 .message-menu-trigger.bot-menu {
-  right: 8px;
+  right: -32px;
 }
 
 .message-menu-trigger:hover {
@@ -1067,42 +1079,34 @@ export default {
   transform: scale(1.1);
 }
 
-/* Message options menu */
+/* Message options menu - bên ngoài tin nhắn */
 .message-options-menu {
   position: fixed;
   background: white;
   border: 1px solid #e1e5e9;
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 128, 0, 0.08);
   padding: 8px 0;
-  min-width: 180px;
+  min-width: 135px;
   z-index: 10000;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.menu-arrow {
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-bottom: 6px solid white;
-  filter: drop-shadow(0 -2px 4px rgba(0, 0, 0, 0.1));
-}
+
 
 .menu-item {
-  padding: 12px 16px;
+  padding: 10px 12px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   position: relative;
   user-select: none;
+  text-align: center;
+  font-weight: 500;
+  color: #495057;
 }
 
 .menu-item:hover {
@@ -1111,12 +1115,6 @@ export default {
 
 .menu-item:active {
   background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
-}
-
-.menu-item {
-  text-align: center;
-  font-weight: 500;
-  color: #495057;
 }
 
 /* Toast notifications */
