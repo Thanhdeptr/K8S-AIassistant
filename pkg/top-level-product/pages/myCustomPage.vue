@@ -764,16 +764,23 @@ export default {
   border-radius: 0;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .header-left span {
   font-size: 26px;
   font-weight: 800;
-  margin-left: 10px;
+  margin-left: 0;
 }
 
 .header-logo {
-  width: 30px;
-  height: 30px;
+  width: 37px;
+  height: 37px;
   object-fit: contain;
+  display: block;
 }
 
 .header-right {
