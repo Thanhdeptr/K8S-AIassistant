@@ -45,6 +45,7 @@ const openai = new OpenAI({
     defaultHeaders: {
         'HTTP-Referer': 'http://192.168.10.18:8055', // Site URL for rankings
         'X-Title': 'K8s Assistant MCP' // Site title for rankings
+        // Không force provider để OpenRouter tự chọn
     }
 });
 
@@ -489,14 +490,18 @@ class MCPHttpClient {
 }
 
 
-// ====== CHUYỂN schema MCP -> tools OpenAI-compatible (Ollama) ======
+// ====== CHUYỂN schema MCP -> tools OpenAI-compatible (OpenRouter) ======
 function mapMcpToolsToOpenAITools(mcpTools) {
     return mcpTools.map((t) => ({
         type: 'function',
         function: {
             name: t.name,
             description: t.description || `MCP tool: ${t.name}`,
-            parameters: t.inputSchema || { type: 'object', properties: {} }, // JSON Schema
+            parameters: t.inputSchema || { 
+                type: 'object', 
+                properties: {},
+                required: []
+            }, // JSON Schema theo OpenRouter format
         },
     }));
 }
@@ -524,11 +529,13 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
 
     let guard = 0;
     while (guard++ < 6) {
+        console.log(`🔄 Tool calling iteration ${guard}/${6}`);
         const completion = await openai.chat.completions.create({
             model: MODEL_NAME,
             messages,
-            tools,
-            tool_choice: 'auto',
+            tools, // Tools phải được include trong mọi request theo OpenRouter docs
+            tool_choice: 'auto', // Let model decide
+            parallel_tool_calls: true, // Allow parallel tool calls
         });
 
         const choice = completion.choices?.[0];
@@ -536,7 +543,12 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
         const toolCalls = msg.tool_calls || msg.toolCalls || [];
 
         if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-            messages.push({ role: 'assistant', tool_calls: toolCalls });
+            // Add assistant message with tool_calls theo OpenRouter format
+            messages.push({ 
+                role: 'assistant', 
+                content: null, // OpenRouter format
+                tool_calls: toolCalls 
+            });
 
             for (const tc of toolCalls) {
                 const { id, function: fn } = tc;
@@ -627,6 +639,9 @@ app.post('/api/chat', async (req, res) => {
         const mcp = await ensureMcp();
 
         // 2) Chạy vòng lặp tool-calling với OpenRouter
+        console.log('🔧 Tools available:', OPENAI_COMPAT_TOOLS.length);
+        console.log('🤖 Using model:', MODEL_NAME);
+        
         const result = await runToolCallingWithOllama({
             userMessages,
             tools: OPENAI_COMPAT_TOOLS,
