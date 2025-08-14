@@ -2,6 +2,13 @@
 const express = require('express');
 const cors = require('cors');
 
+// Load environment variables from .env file
+try {
+    require('dotenv').config();
+} catch (e) {
+    console.log('⚠️ dotenv not installed, using system environment variables');
+}
+
 // --- Polyfill fetch cho Node cũ (ưu tiên undici) ---
 try {
     const { fetch, Headers, Request, Response } = require('undici');
@@ -20,9 +27,10 @@ try {
 const OpenAI = require('openai');
 
 // ====== CẤU HÌNH ======
-const OLLAMA_BASE = process.env.OLLAMA_BASE || 'http://192.168.10.32:11434/v1';
-const MODEL_NAME = process.env.MODEL_NAME || 'gpt-oss:20b'; // model trong Ollama
-const MCP_BASE = process.env.MCP_BASE || 'http://192.168.10.18:3000'; // http://host:port
+// Sử dụng OpenRouter thay vì Ollama
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+const MODEL_NAME = 'openai/gpt-oss-20b:free';
+const MCP_BASE = 'http://192.168.10.18:3000'; // http://host:port
 
 // Nếu MCP cần header như Authorization thì thêm ở đây
 const MCP_HEADERS = {
@@ -30,10 +38,14 @@ const MCP_HEADERS = {
     // 'authorization': `Bearer ${process.env.MCP_TOKEN}`,
 };
 
-// ====== OPENAI CLIENT (Ollama-compatible) ======
+// ====== OPENAI CLIENT (OpenRouter) ======
 const openai = new OpenAI({
-    baseURL: OLLAMA_BASE,
-    apiKey: 'ollama', // placeholder
+    baseURL: OPENROUTER_BASE,
+    apiKey: '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',
+    defaultHeaders: {
+        'HTTP-Referer': 'http://localhost:8055',
+        'X-Title': 'K8s Assistant MCP'
+    }
 });
 
 // ====== MCP HTTP + SSE CLIENT ======
@@ -632,7 +644,7 @@ app.post('/api/chat', async (req, res) => {
 app.get('/health', async (_req, res) => {
     try {
         await ensureMcp();
-        res.json({ ok: true, ollama: OLLAMA_BASE, model: MODEL_NAME, mcp: MCP_BASE });
+        res.json({ ok: true });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -676,7 +688,8 @@ app.get('/api/mcp/status', async (_req, res) => {
 
 app.listen(8055, '0.0.0.0', () => {
     console.log('✅ API chạy: http://0.0.0.0:8055');
-    console.log('🤖 Ollama baseURL:', OLLAMA_BASE, ' | MODEL:', MODEL_NAME);
+    console.log('🤖 OpenRouter baseURL:', OPENROUTER_BASE, ' | MODEL:', MODEL_NAME);
+    console.log('🔑 OpenRouter API Key: ✅ Đã cấu hình');
     console.log('🌐 MCP base:', MCP_BASE, ' (HTTP + SSE)');
     console.log('ℹ️ Flow: GET /sse → nhận "event:endpoint" → POST JSON-RPC vào /messages?sessionId=...');
 });
