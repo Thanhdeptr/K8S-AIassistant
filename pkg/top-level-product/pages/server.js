@@ -41,7 +41,7 @@ const MCP_HEADERS = {
 // ====== OPENAI CLIENT (OpenRouter) ======
 const openai = new OpenAI({
     baseURL: OPENROUTER_BASE,
-    apiKey: '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',
+    apiKey: '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',
     defaultHeaders: {
         'HTTP-Referer': 'http://192.168.10.18:8055', // Site URL for rankings
         'X-Title': 'K8s Assistant MCP' // Site title for rankings
