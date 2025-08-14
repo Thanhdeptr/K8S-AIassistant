@@ -29,7 +29,7 @@ const OpenAI = require('openai');
 // ====== CẤU HÌNH ======
 // Sử dụng OpenRouter theo tài liệu chính thức
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
-const MODEL_NAME = 'openai/gpt-oss-20b:free';
+const MODEL_NAME = 'openai/gpt-oss-20b'; // Thử loại bỏ :free suffix
 const MCP_BASE = 'http://192.168.10.18:3000'; // http://host:port
 
 // Nếu MCP cần header như Authorization thì thêm ở đây
@@ -44,9 +44,12 @@ const openai = new OpenAI({
     apiKey: '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',
     defaultHeaders: {
         'HTTP-Referer': 'http://192.168.10.18:8055', // Site URL for rankings
-        'X-Title': 'K8s Assistant MCP' // Site title for rankings
+        'X-Title': 'K8s Assistant MCP', // Site title for rankings
+        'Content-Type': 'application/json' // Ensure content type
         // Không force provider để OpenRouter tự chọn
-    }
+    },
+    timeout: 60000, // 60 seconds timeout
+    maxRetries: 2   // Retry on failure
 });
 
 // ====== MCP HTTP + SSE CLIENT ======
@@ -492,18 +495,31 @@ class MCPHttpClient {
 
 // ====== CHUYỂN schema MCP -> tools OpenAI-compatible (OpenRouter) ======
 function mapMcpToolsToOpenAITools(mcpTools) {
-    return mcpTools.map((t) => ({
-        type: 'function',
-        function: {
-            name: t.name,
-            description: t.description || `MCP tool: ${t.name}`,
-            parameters: t.inputSchema || { 
-                type: 'object', 
-                properties: {},
-                required: []
-            }, // JSON Schema theo OpenRouter format
-        },
-    }));
+    console.log('🔧 Converting MCP tools to OpenRouter format...');
+    const converted = mcpTools.map((t) => {
+        const tool = {
+            type: 'function',
+            function: {
+                name: t.name,
+                description: t.description || `MCP tool: ${t.name}`,
+                parameters: t.inputSchema || { 
+                    type: 'object', 
+                    properties: {},
+                    required: []
+                }, // JSON Schema theo OpenRouter format
+            },
+        };
+        
+        // Debug first tool
+        if (t.name === 'kubectl_get') {
+            console.log('🔍 Sample tool (kubectl_get):', JSON.stringify(tool, null, 2));
+        }
+        
+        return tool;
+    });
+    
+    console.log(`✅ Converted ${converted.length} MCP tools to OpenRouter format`);
+    return converted;
 }
 
 const truncate = (s, n) =>
@@ -530,13 +546,24 @@ async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
     let guard = 0;
     while (guard++ < 6) {
         console.log(`🔄 Tool calling iteration ${guard}/${6}`);
-        const completion = await openai.chat.completions.create({
+        
+        // Debug request theo OpenRouter docs
+        const requestData = {
             model: MODEL_NAME,
             messages,
             tools, // Tools phải được include trong mọi request theo OpenRouter docs
             tool_choice: 'auto', // Let model decide
             parallel_tool_calls: true, // Allow parallel tool calls
-        });
+        };
+        
+        console.log('📤 OpenRouter Request:');
+        console.log('- Model:', requestData.model);
+        console.log('- Tools count:', requestData.tools?.length || 0);
+        console.log('- Messages count:', requestData.messages?.length || 0);
+        console.log('- Tool choice:', requestData.tool_choice);
+        console.log('- First tool name:', requestData.tools?.[0]?.function?.name || 'none');
+        
+        const completion = await openai.chat.completions.create(requestData);
 
         const choice = completion.choices?.[0];
         const msg = choice?.message || {};
@@ -723,4 +750,5 @@ app.listen(8055, '0.0.0.0', () => {
     console.log('🌐 MCP base:', MCP_BASE, ' (HTTP + SSE)');
     console.log('ℹ️ Flow: GET /sse → nhận "event:endpoint" → POST JSON-RPC vào /messages?sessionId=...');
     console.log('📚 Cấu hình theo: https://openrouter.ai/docs/quickstart');
+    console.log('🔧 Headers:', JSON.stringify(openai.defaultHeaders, null, 2));
 });
