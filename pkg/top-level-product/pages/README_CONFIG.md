@@ -18,8 +18,18 @@ node test-openrouter.js
 ## Cấu hình hiện tại
 - **Provider**: OpenRouter
 - **Model**: openai/gpt-oss-20b:free
+- **Model Info**: 131,072 context tokens, MoE architecture, Free tier
 - **API Key**: Đã cấu hình sẵn
 - **MCP Base**: http://192.168.10.18:3000
+
+## Thông tin Model gpt-oss-20b
+
+Theo [OpenRouter API docs](https://openrouter.ai/openai/gpt-oss-20b:free/api):
+- **Context Length**: 131,072 tokens
+- **Architecture**: Mixture-of-Experts (MoE) với 3.6B active parameters
+- **Pricing**: Miễn phí ($0/M input tokens, $0/M output tokens)
+- **Features**: Function calling, tool use, structured outputs
+- **License**: Apache 2.0 (open-weight)
 
 ## Yêu cầu
 - Internet connection
@@ -32,6 +42,13 @@ node test-openrouter.js
 2. Đăng ký tài khoản (miễn phí)
 3. Tạo API key mới
 4. Copy API key và set vào environment variable
+
+## Tài liệu tham khảo
+
+- **Quickstart Guide**: https://openrouter.ai/docs/quickstart
+- **API Reference**: https://openrouter.ai/docs/api
+- **Models**: https://openrouter.ai/docs/models
+- **FAQ**: https://openrouter.ai/docs/faq
 
 ## Kiểm tra cấu hình
 

@@ -27,7 +27,7 @@ try {
 const OpenAI = require('openai');
 
 // ====== CẤU HÌNH ======
-// Sử dụng OpenRouter với error handling tốt hơn
+// Sử dụng OpenRouter theo tài liệu chính thức
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const MODEL_NAME = 'openai/gpt-oss-20b:free';
 const MCP_BASE = 'http://192.168.10.18:3000'; // http://host:port
@@ -43,11 +43,9 @@ const openai = new OpenAI({
     baseURL: OPENROUTER_BASE,
     apiKey: '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',
     defaultHeaders: {
-        'HTTP-Referer': 'http://localhost:8055',
-        'X-Title': 'K8s Assistant MCP'
-    },
-    timeout: 60000, // 60 giây timeout
-    maxRetries: 3   // Retry 3 lần nếu lỗi
+        'HTTP-Referer': 'http://192.168.10.18:8055', // Site URL for rankings
+        'X-Title': 'K8s Assistant MCP' // Site title for rankings
+    }
 });
 
 // ====== MCP HTTP + SSE CLIENT ======
@@ -506,7 +504,7 @@ function mapMcpToolsToOpenAITools(mcpTools) {
 const truncate = (s, n) =>
     (s && s.length > n ? s.slice(0, n) + '\n...[truncated]...' : s || '');
 
-// ====== VÒNG LẶP TOOL-CALLING (thuần Ollama) ======
+// ====== VÒNG LẶP TOOL-CALLING (OpenRouter gpt-oss-20b) ======
 async function runToolCallingWithOllama({ userMessages, tools, mcp }) {
         const messages = userMessages.slice();
     messages.push({
@@ -709,5 +707,5 @@ app.listen(8055, '0.0.0.0', () => {
     console.log('🔑 OpenRouter API Key: ✅ Đã cấu hình');
     console.log('🌐 MCP base:', MCP_BASE, ' (HTTP + SSE)');
     console.log('ℹ️ Flow: GET /sse → nhận "event:endpoint" → POST JSON-RPC vào /messages?sessionId=...');
-    console.log('⚠️ Lưu ý: Cần internet connection để kết nối OpenRouter');
+    console.log('📚 Cấu hình theo: https://openrouter.ai/docs/quickstart');
 });
