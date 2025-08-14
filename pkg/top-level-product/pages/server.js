@@ -27,7 +27,7 @@ try {
 const OpenAI = require('openai');
 
 // ====== CẤU HÌNH ======
-// Sử dụng OpenRouter thay vì Ollama
+// Sử dụng OpenRouter với error handling tốt hơn
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const MODEL_NAME = 'openai/gpt-oss-20b:free';
 const MCP_BASE = 'http://192.168.10.18:3000'; // http://host:port
@@ -45,7 +45,9 @@ const openai = new OpenAI({
     defaultHeaders: {
         'HTTP-Referer': 'http://localhost:8055',
         'X-Title': 'K8s Assistant MCP'
-    }
+    },
+    timeout: 60000, // 60 giây timeout
+    maxRetries: 3   // Retry 3 lần nếu lỗi
 });
 
 // ====== MCP HTTP + SSE CLIENT ======
@@ -626,7 +628,7 @@ app.post('/api/chat', async (req, res) => {
         // 1) Kết nối MCP + lấy tools (cache)
         const mcp = await ensureMcp();
 
-        // 2) Chạy vòng lặp tool-calling với Ollama
+        // 2) Chạy vòng lặp tool-calling với OpenRouter
         const result = await runToolCallingWithOllama({
             userMessages,
             tools: OPENAI_COMPAT_TOOLS,
@@ -636,7 +638,22 @@ app.post('/api/chat', async (req, res) => {
         return res.json({ message: { content: result.text } });
     } catch (err) {
         console.error('Chat error:', err?.message || err);
-        return res.status(502).json({ message: { content: '❌ Lỗi xử lý yêu cầu' } });
+        console.error('Error stack:', err?.stack);
+        
+        // Phân loại lỗi để trả về thông báo phù hợp
+        let errorMessage = '❌ Lỗi xử lý yêu cầu';
+        
+        if (err?.message?.includes('timeout')) {
+            errorMessage = '⏰ Lỗi timeout - Vui lòng thử lại';
+        } else if (err?.message?.includes('401') || err?.message?.includes('Unauthorized')) {
+            errorMessage = '🔑 Lỗi xác thực OpenRouter - Kiểm tra API key';
+        } else if (err?.message?.includes('429') || err?.message?.includes('rate limit')) {
+            errorMessage = '🚫 Quá giới hạn rate limit - Vui lòng đợi và thử lại';
+        } else if (err?.message?.includes('network') || err?.message?.includes('fetch')) {
+            errorMessage = '🌐 Lỗi kết nối mạng - Kiểm tra internet connection';
+        }
+        
+        return res.status(502).json({ message: { content: errorMessage } });
     }
 });
 
@@ -692,4 +709,5 @@ app.listen(8055, '0.0.0.0', () => {
     console.log('🔑 OpenRouter API Key: ✅ Đã cấu hình');
     console.log('🌐 MCP base:', MCP_BASE, ' (HTTP + SSE)');
     console.log('ℹ️ Flow: GET /sse → nhận "event:endpoint" → POST JSON-RPC vào /messages?sessionId=...');
+    console.log('⚠️ Lưu ý: Cần internet connection để kết nối OpenRouter');
 });

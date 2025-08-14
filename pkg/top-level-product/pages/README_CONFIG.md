@@ -1,7 +1,7 @@
 # Cấu hình Server - OpenRouter
 
 ## Tổng quan
-Server này sử dụng **OpenRouter** với model `gpt-oss-20b` (miễn phí) thay vì Ollama.
+Server này sử dụng **OpenRouter** với model `gpt-oss-20b` (miễn phí).
 
 ## Cách chạy
 
@@ -10,16 +10,21 @@ Server này sử dụng **OpenRouter** với model `gpt-oss-20b` (miễn phí) t
 node server.js
 ```
 
-### Hoặc với npm:
+### Test kết nối OpenRouter trước:
 ```bash
-npm start
+node test-openrouter.js
 ```
 
 ## Cấu hình hiện tại
 - **Provider**: OpenRouter
 - **Model**: openai/gpt-oss-20b:free
-- **API Key**: Đã được cấu hình sẵn trong code
+- **API Key**: Đã cấu hình sẵn
 - **MCP Base**: http://192.168.10.18:3000
+
+## Yêu cầu
+- Internet connection
+- Không bị firewall/proxy chặn
+- API key OpenRouter hợp lệ
 
 ## Lấy OpenRouter API Key
 
