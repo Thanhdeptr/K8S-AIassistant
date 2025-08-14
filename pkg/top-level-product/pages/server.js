@@ -29,7 +29,7 @@ const OpenAI = require('openai');
 // ====== CẤU HÌNH ======
 // Sử dụng OpenRouter theo tài liệu chính thức
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
-const MODEL_NAME = 'openai/gpt-oss-20b'; // Thử loại bỏ :free suffix
+const MODEL_NAME = 'openai/gpt-oss-20b:free';
 const MCP_BASE = 'http://192.168.10.18:3000'; // http://host:port
 
 // Nếu MCP cần header như Authorization thì thêm ở đây
