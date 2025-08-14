@@ -41,8 +41,7 @@
           <!-- Formatted logs display -->
           <div v-if="msg.isLogs" class="logs-container">
             <div class="logs-header">
-              <span class="logs-title">📋 Kubernetes Logs</span>
-              <span class="logs-count">{{ msg.logs.length }} entries</span>
+              <span class="logs-title"> Logs </span>
             </div>
             <div class="logs-content">
               <div v-for="(log, logIndex) in msg.logs" :key="logIndex" class="log-entry">
@@ -293,12 +292,19 @@ export default {
             });
           } else if (this.isKubernetesLogs(reply)) {
             const formattedLogs = this.parseKubernetesLogs(reply);
-            this.messages.push({ 
-              role: "bot", 
-              text: reply, // giữ nguyên nội dung gốc cho context hội thoại
-              isLogs: true,
-              logs: formattedLogs
-            });
+            
+            // Nếu parse được logs thì hiển thị logs, không thì hiển thị text thường
+            if (formattedLogs && formattedLogs.length > 0) {
+              this.messages.push({ 
+                role: "bot", 
+                text: reply, // giữ nguyên nội dung gốc cho context hội thoại
+                isLogs: true,
+                logs: formattedLogs
+              });
+            } else {
+              // Fallback về text thường nếu không parse được logs
+              this.messages.push({ role: "bot", text: reply });
+            }
           } else if (this.isMarkdownTable(reply)) {
             // Parse generic Markdown table (e.g., list of Pods)
             const { table, preamble, afterText } = this.parseMarkdownTable(reply);
@@ -336,42 +342,30 @@ export default {
       }
     },
 
-    // Check if the response contains Kubernetes logs (table format, JSON format, or plain text format)
+    // Check if the response contains logs (generic detection)
     isKubernetesLogs(text) {
       if (!text || typeof text !== 'string') return false;
       
-      // Kiểm tra table format logs
-      if (text.includes('| Timestamp | Level | Category | Message |') || 
-          text.includes('Mười dòng cuối cùng của log container')) {
-        return true;
-      }
+      // Generic log detection patterns
+      const logPatterns = [
+        // Table format
+        /\|.*timestamp.*\|.*level.*\|.*category.*\|.*message.*\|/i,
+        /\|.*level.*\|.*message.*\|/i,
+        
+        // JSON format (any JSON with log-like fields)
+        /\{[^{}]*"(timestamp|time|ts|message|msg|level|log|attr|t|s|c|ctx)"[^{}]*\}/i,
+        
+        // Plain text patterns
+        /dòng log|log cuối cùng|pod `|container/i,
+        /yarn run|node:|Warning:|Error:|server is up|port/i,
+        /timestamp|level|category|message/i,
+        
+        // Common log keywords
+        /debug|info|warn|error|fatal|trace/i,
+        /started|stopped|connected|disconnected|failed|success/i
+      ];
       
-      // Kiểm tra JSON format logs
-      const jsonMatches = text.match(/\{[^{}]*\}/g);
-      if (jsonMatches && jsonMatches.length >= 2) {
-        // Kiểm tra xem có phải là logs không (có timestamp, message, etc.)
-        const sampleJson = jsonMatches[0];
-        try {
-          const parsed = JSON.parse(sampleJson);
-          return parsed.timestamp || parsed.time || parsed.ts || 
-                 parsed.message || parsed.msg || 
-                 parsed.level || parsed.log || 
-                 parsed.attr || parsed.attributes;
-        } catch {
-          return false;
-        }
-      }
-      
-      // Kiểm tra plain text format logs
-      if (text.includes('dòng log') || text.includes('log cuối cùng') || 
-          text.includes('pod `') || text.includes('container') ||
-          text.includes('yarn run') || text.includes('node:') ||
-          text.includes('Warning:') || text.includes('Error:') ||
-          text.includes('server is up') || text.includes('port')) {
-        return true;
-      }
-      
-      return false;
+      return logPatterns.some(pattern => pattern.test(text));
     },
 
     // Check if the response looks like a generic Markdown table or plain text table
@@ -565,27 +559,19 @@ export default {
       return { table: result, preamble, afterText };
     },
 
-    // Parse Kubernetes logs from table format, JSON format, or plain text format
+    // Parse logs using generic approach
     parseKubernetesLogs(text) {
       const logs = [];
       
-      // Kiểm tra nếu là JSON format
+      // Generic JSON parser
       const jsonMatches = text.match(/\{[^{}]*\}/g);
       if (jsonMatches && jsonMatches.length >= 2) {
-        // Parse JSON logs
         for (const jsonStr of jsonMatches) {
           try {
             const logEntry = JSON.parse(jsonStr);
-            logs.push({
-              timestamp: logEntry.timestamp || logEntry.time || logEntry.ts || '',
-              level: logEntry.level || logEntry.log || 'INFO',
-              category: logEntry.category || logEntry.context || '',
-              message: logEntry.message || logEntry.msg || 
-                      (logEntry.attr && logEntry.attr.message) || 
-                      JSON.stringify(logEntry)
-            });
+            const parsed = this.extractLogFields(logEntry);
+            if (parsed) logs.push(parsed);
           } catch (e) {
-            // Nếu không parse được JSON, thêm như text thường
             logs.push({
               timestamp: '',
               level: 'ERROR',
@@ -594,60 +580,43 @@ export default {
             });
           }
         }
-      } else if (text.includes('| Timestamp | Level | Category | Message |')) {
-        // Parse table format logs
-        const lines = text.split('\n');
+      } else if (text.includes('|')) {
+        // Generic table parser
+        const lines = text.split('\n').filter(line => line.trim());
+        const headerLine = lines.find(line => line.includes('|'));
         
-        for (const line of lines) {
-          // Skip header lines and empty lines
-          if (line.includes('|-----') || line.includes('| Timestamp') || 
-              line.includes('| # |') || line.trim() === '') {
-            continue;
-          }
+        if (headerLine) {
+          const headers = headerLine.split('|').map(h => h.trim().toLowerCase()).filter(h => h);
+          const timestampIdx = headers.findIndex(h => h.includes('time') || h.includes('date'));
+          const levelIdx = headers.findIndex(h => h.includes('level') || h.includes('type'));
+          const categoryIdx = headers.findIndex(h => h.includes('category') || h.includes('source') || h.includes('component'));
+          const messageIdx = headers.findIndex(h => h.includes('message') || h.includes('msg') || h.includes('content'));
           
-          // Parse table row
-          const parts = line.split('|').map(part => part.trim()).filter(part => part);
-          if (parts.length >= 4) {
-            logs.push({
-              timestamp: parts[1] || parts[0],
-              level: parts[2] || parts[1],
-              category: parts[3] || parts[2],
-              message: parts[4] || parts[3] || ''
-            });
+          for (const line of lines) {
+            if (line.includes('|') && !line.includes('---') && line !== headerLine) {
+              const parts = line.split('|').map(p => p.trim()).filter(p => p);
+              logs.push({
+                timestamp: timestampIdx >= 0 ? parts[timestampIdx] || '' : '',
+                level: levelIdx >= 0 ? parts[levelIdx] || 'INFO' : 'INFO',
+                category: categoryIdx >= 0 ? parts[categoryIdx] || '' : '',
+                message: messageIdx >= 0 ? parts[messageIdx] || '' : parts.join(' ')
+              });
+            }
           }
         }
       } else {
-        // Parse plain text format logs
+        // Generic plain text parser
         const lines = text.split('\n').filter(line => line.trim());
         
         for (const line of lines) {
-          // Skip markdown formatting and empty lines
           if (line.startsWith('**') || line.startsWith('```') || 
               line.includes('dòng log') || line.includes('pod `') ||
               line.trim() === '') {
             continue;
           }
           
-          // Determine log level based on content
-          let level = 'INFO';
-          if (line.includes('Warning:')) level = 'WARNING';
-          else if (line.includes('Error:')) level = 'ERROR';
-          else if (line.includes('yarn run')) level = 'INFO';
-          else if (line.includes('node:')) level = 'WARNING';
-          else if (line.includes('server is up')) level = 'INFO';
-          
-          // Determine category based on content
-          let category = 'Application';
-          if (line.includes('yarn')) category = 'Package Manager';
-          else if (line.includes('node:')) category = 'Node.js';
-          else if (line.includes('server')) category = 'Server';
-          
-          logs.push({
-            timestamp: new Date().toISOString(), // Use current time for plain text logs
-            level: level,
-            category: category,
-            message: line.trim()
-          });
+          const parsed = this.parsePlainTextLog(line);
+          if (parsed) logs.push(parsed);
         }
       }
       
@@ -694,6 +663,81 @@ export default {
         'DEBUG': 'level-debug'
       };
       return levelMap[level] || 'level-default';
+    },
+
+    // Extract log fields from any JSON object
+    extractLogFields(logEntry) {
+      // Generic field extraction
+      const timestamp = logEntry.timestamp || logEntry.time || logEntry.ts || 
+                       (logEntry.t && logEntry.t.$date) || logEntry.t || '';
+      
+      const level = this.normalizeLevel(logEntry.level || logEntry.log || logEntry.s || 'INFO');
+      
+      const category = logEntry.category || logEntry.context || logEntry.c || logEntry.ctx || '';
+      
+      let message = logEntry.message || logEntry.msg || '';
+      if (logEntry.attr && logEntry.attr.message) {
+        const attrMsg = typeof logEntry.attr.message === 'string' ? 
+          logEntry.attr.message : JSON.stringify(logEntry.attr.message);
+        message += (message ? ': ' : '') + attrMsg;
+      }
+      
+      return {
+        timestamp,
+        level,
+        category,
+        message: message || JSON.stringify(logEntry)
+      };
+    },
+
+    // Parse plain text log line
+    parsePlainTextLog(line) {
+      const trimmed = line.trim();
+      if (!trimmed) return null;
+      
+      // Auto-detect level and category
+      const level = this.detectLevel(trimmed);
+      const category = this.detectCategory(trimmed);
+      
+      return {
+        timestamp: new Date().toISOString(),
+        level,
+        category,
+        message: trimmed
+      };
+    },
+
+    // Normalize log levels
+    normalizeLevel(level) {
+      const levelMap = {
+        'I': 'INFO', 'i': 'INFO',
+        'E': 'ERROR', 'e': 'ERROR',
+        'W': 'WARNING', 'w': 'WARNING',
+        'D': 'DEBUG', 'd': 'DEBUG',
+        'F': 'FATAL', 'f': 'FATAL'
+      };
+      return levelMap[level] || level.toUpperCase();
+    },
+
+    // Detect log level from text
+    detectLevel(text) {
+      const lower = text.toLowerCase();
+      if (lower.includes('error') || lower.includes('err')) return 'ERROR';
+      if (lower.includes('warn')) return 'WARNING';
+      if (lower.includes('debug')) return 'DEBUG';
+      if (lower.includes('fatal')) return 'FATAL';
+      return 'INFO';
+    },
+
+    // Detect category from text
+    detectCategory(text) {
+      const lower = text.toLowerCase();
+      if (lower.includes('yarn') || lower.includes('npm')) return 'Package Manager';
+      if (lower.includes('node:')) return 'Node.js';
+      if (lower.includes('server')) return 'Server';
+      if (lower.includes('database') || lower.includes('db')) return 'Database';
+      if (lower.includes('network') || lower.includes('http')) return 'Network';
+      return 'Application';
     },
 
     // Dừng request đang chạy
