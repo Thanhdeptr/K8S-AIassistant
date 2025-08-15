@@ -1,0 +1,28 @@
+{
+    "name": "openrouter-tool-call-demo",
+    "version": "1.0.0",
+    "description": "Demo OpenRouter Tool Calling với GPT-OSS-20B (Free)",
+    "main": "openrouter-tool-call-demo.js",
+    "scripts": {
+        "start": "node openrouter-tool-call-demo.js",
+        "interactive": "node openrouter-tool-call-demo.js --interactive",
+        "demo": "node openrouter-tool-call-demo.js"
+    },
+    "keywords": [
+        "openrouter",
+        "gpt-oss-20b",
+        "tool-calling",
+        "function-calling",
+        "ai",
+        "demo"
+    ],
+    "author": "Your Name",
+    "license": "MIT",
+    "dependencies": {
+        "node-fetch": "^2.6.7",
+        "dotenv": "^16.0.3"
+    },
+    "engines": {
+        "node": ">=14.0.0"
+    }
+}
