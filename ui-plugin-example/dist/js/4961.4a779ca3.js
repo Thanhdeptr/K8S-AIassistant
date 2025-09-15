@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[4961],{74961:(e,n,t)=>{t.r(n),t.d(n,{default:()=>a});var u=t(20641);function i(e,n,t,i,r,s){return(0,u.uX)(),(0,u.CE)("div",null,"Redirecting...")}const r={mounted(){const e=this.$store.getters["backToRancherLink"];window.location.href=e}};var s=t(66262);const c=(0,s.A)(r,[["render",i]]),a=c}}]);
+//# sourceMappingURL=4961.4a779ca3.js.map

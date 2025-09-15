@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[6560],{26560:(e,r,s)=>{s.r(r),s.d(r,{default:()=>p});var t=s(853),u=s(55823);const a={beforeCreate(){const e=!!this.$store.getters["management/schemaFor"](u.Mc.SETTING);return this.$router.replace({name:"c-cluster-product-resource",params:{...this.$route.params,product:t.NAME,resource:e?u.Mc.SETTING:u.Mc.FEATURE}})}},c=a,p=c}}]);
+//# sourceMappingURL=6560.e4beaccf.js.map

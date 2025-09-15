@@ -1,0 +1,12 @@
+{
+  "files.exclude": {
+    ".ackrc": true,
+    ".drone.yml": true,
+    ".eslintcache": true,
+    ".nuxt*": true,
+    "LICENSE": true,
+    "pkg/**/.shell": true,
+    "pkg/**/node_modules": true
+  },
+  "path-intellisense.showHiddenFiles": false
+}

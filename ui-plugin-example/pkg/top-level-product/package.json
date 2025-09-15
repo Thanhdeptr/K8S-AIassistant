@@ -1,0 +1,42 @@
+{
+  "name": "top-level-product",
+  "description": "Example extension for a top-level product on Rancher Dashboard",
+  "version": "0.2.2",
+  "private": false,
+  "rancher": {
+    "annotations": {
+      "catalog.cattle.io/kube-version": ">= 1.16.0-0",
+      "catalog.cattle.io/rancher-version": ">= 2.10.0-0",
+      "catalog.cattle.io/ui-extensions-version": ">= 3.0.0 < 4.0.0"
+    }
+  },
+  "scripts": {
+    "dev": "./node_modules/.bin/nuxt dev",
+    "nuxt": "./node_modules/.bin/nuxt",
+    "start-server": "node pages/server-new.js",
+    "test-mcp": "curl http://localhost:8055/api/mcp/status",
+    "test-ai": "curl -X POST http://192.168.10.18:11435/api/generate -d '{\"model\":\"llama3.2:1b\",\"prompt\":\"Hello\",\"stream\":false}'"
+  },
+  "engines": {
+    "node": ">=12"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "~5.0.0",
+    "@vue/cli-plugin-typescript": "~5.0.0",
+    "@vue/cli-service": "~5.0.0"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ],
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "openai": "^4.67.3",
+    "undici": "^5.28.4",
+    "zod": "^3.25.76"
+  }
+}

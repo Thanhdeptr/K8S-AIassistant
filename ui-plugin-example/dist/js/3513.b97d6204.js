@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkui_plugin_examples"]=self["webpackChunkui_plugin_examples"]||[]).push([[3513],{73513:(e,r,u)=>{u.r(r),u.d(r,{default:()=>s});var n=u(20641);function a(e,r,u,a,t,c){const l=(0,n.g2)("ResourceDetail");return(0,n.uX)(),(0,n.Wv)(l,{"resource-override":"cloudcredential","parent-route-override":"c-cluster-manager-cloudCredential"})}var t=u(57805);const c={name:"CloudCredentialCreate",components:{ResourceDetail:t.A}};var l=u(66262);const o=(0,l.A)(c,[["render",a]]),s=o}}]);
+//# sourceMappingURL=3513.b97d6204.js.map
