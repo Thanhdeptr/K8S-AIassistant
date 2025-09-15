@@ -2,6 +2,7 @@
 
 A minimal setup to run a Kubernetes MCP server and a UI Plugin backend with Docker Compose.
 
+
 ## Overview
 - MCP Server (`mcp-server-kubernetes`)
   - Exposes an HTTP SSE transport (Server-Sent Events) for MCP on port 3000.
@@ -13,9 +14,10 @@ A minimal setup to run a Kubernetes MCP server and a UI Plugin backend with Dock
 ## Prerequisites
 - Docker and Docker Compose
 - A valid kubeconfig on the host (e.g. `/home/<user>/.kube/config`)
-- An accessible Ollama/OpenAI-compatible endpoint (e.g. `http://192.168.10.32:11434/v1`)
+- An accessible Ollama/OpenAI-compatible endpoint 
 
 ## Quick Start
+note: mcp server not support multicluster so you have to chang the KUBECONFIG PATH to 
 1. Set host user and group for the container to read your kubeconfig:
 ```bash
 export UID=$(id -u)
@@ -44,18 +46,16 @@ docker compose up -d
 - Service: `ui-plugin` (port 8055)
   - Environment:
     - `MCP_BASE=http://mcp:3000` (service name inside the compose network)
-    - `OLLAMA_BASE=http://192.168.10.32:11434/v1`
+    - `OLLAMA_BASE= <your model API>
     - `MODEL_NAME=gpt-oss:20b`
 
 Adjust `OLLAMA_BASE`, `MODEL_NAME`, kubeconfig path, and ports to match your environment.
 
-## Troubleshooting
-- Permission denied reading kubeconfig (EACCES):
-  - Ensure `chmod 644 /home/<user>/.kube/config` on the host
-  - Export `UID`/`GID` before `docker compose up`
-  - If SELinux is enforcing, try adding `:Z` to the bind mount (e.g. `:/kube/config:ro,Z`)
-- Network access to Ollama or Kubernetes API:
-  - Verify the host/IP is reachable from the container
+## Demo
+- Screenshot demo:
+
+  ![Demo Screenshot](image/Screenshot 2025-09-15 154543.png)
+
 
 ## Project Layout
 - MCP server source: `mcp-server-kubernetes/`
