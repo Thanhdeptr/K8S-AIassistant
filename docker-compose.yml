@@ -1,0 +1,42 @@
+version: "3.9"
+
+networks:
+  ai-net:
+    driver: bridge
+
+services:
+  mcp:
+    build:
+      context: ./mcp-server-kubernetes
+      dockerfile: Dockerfile
+    container_name: mcp-k8s
+    user: "${UID}:${GID}"
+    environment:
+      ENABLE_UNSAFE_SSE_TRANSPORT: "true"
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      KUBECONFIG_PATH: "/kube/config"
+    volumes:
+      - /home/hatthanh/.kube/config:/kube/config:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - ai-net
+
+  ui-plugin:
+    build:
+      context: ./ui-plugin-example/pkg/top-level-product
+      dockerfile: Dockerfile
+    container_name: ui-plugin
+    environment:
+      OLLAMA_BASE: "http://192.168.10.32:11434/v1"
+      MODEL_NAME: "gpt-oss:20b"
+      MCP_BASE: "http://mcp:3000"
+    depends_on:
+      - mcp
+    ports:
+      - "8055:8055"
+    networks:
+      - ai-net
+
+
