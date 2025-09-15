@@ -54,7 +54,7 @@ Adjust `OLLAMA_BASE`, `MODEL_NAME`, kubeconfig path, and ports to match your env
 ## Demo
 - Screenshot demo:
 
-  ![Demo Screenshot](image/Screenshot 2025-09-15 154543.png)
+  ![Demo Screenshot](image/Screenshot%202025-09-15%20154543.png)
 
 
 ## Project Layout
