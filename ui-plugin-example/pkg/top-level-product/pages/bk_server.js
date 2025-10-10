@@ -10,10 +10,14 @@ app.post('/api/chat', async (req, res) => {
   try {
     const userMessages = req.body.messages;
 
-    const response = await axios.post('https://15d1204b2df5.ngrok-free.app/api/chat', {
+    const response = await axios.post('https://46348f0ab8fa.ngrok-free.app/api/chat', {
       model: "gpt-oss:20b",
       messages: userMessages,
       stream: false
+    }, {
+      headers: {
+        'ngrok-skip-browser-warning': 'true'
+      }
     });
 
     res.json(response.data); // Gửi trả kết quả về lại FE
