@@ -252,10 +252,11 @@ export default {
       this.abortController = new AbortController();
 
       try {
-        const res = await fetch("/api/chat", {
+        const res = await fetch("https://46348f0ab8fa.ngrok-free.app/api/chat", {
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "ngrok-skip-browser-warning": "true"
           },
           body: JSON.stringify({
             model: "gpt-oss:20b",
