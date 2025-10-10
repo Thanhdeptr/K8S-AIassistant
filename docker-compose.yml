@@ -22,6 +22,7 @@ services:
       - "3000:3000"
     networks:
       - ai-net
+    restart: unless-stopped
 
   ui-plugin:
     build:
@@ -38,5 +39,6 @@ services:
       - "8055:8055"
     networks:
       - ai-net
+    restart: unless-stopped
 
 
