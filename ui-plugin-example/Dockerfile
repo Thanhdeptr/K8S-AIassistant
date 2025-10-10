@@ -1,13 +1,12 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY yarn.lock ./
 
 # Install dependencies
-RUN yarn install
+RUN npm install
 
 # Copy source code
 COPY . .
