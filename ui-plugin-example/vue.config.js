@@ -1,45 +1,25 @@
 const config = require('@rancher/shell/vue.config'); // eslint-disable-line @typescript-eslint/no-var-requires
 
-module.exports = config(__dirname, {
+// Get base config from Rancher shell
+const baseConfig = config(__dirname, {
   excludes: ['clock', 'extension-crd', 'extensions-api-demo', 'homepage', 'large-extension', 'node-driver', 'uk-locale'],
   // Chỉ chạy top-level-product plugin
-  devServer: {
-    proxy: {
-      // Proxy to Rancher backend chính trên port 8443
-      '/v3': {
-        target: 'https://192.168.10.18:8443',
-        changeOrigin: true,
-        secure: false,
-        logLevel: 'debug',
-        headers: {
-          'Connection': 'keep-alive'
-        }
-      },
-      '/v1': {
-        target: 'https://192.168.10.18:8443',
-        changeOrigin: true,
-        secure: false,
-        logLevel: 'debug',
-        headers: {
-          'Connection': 'keep-alive'
-        }
-      },
-      '/rancherversion': {
-        target: 'https://192.168.10.18:8443',
-        changeOrigin: true,
-        secure: false,
-        logLevel: 'debug',
-        headers: {
-          'Connection': 'keep-alive'
-        }
-      },
-      // Proxy API calls đến backend của chúng ta
-      '/api/chat': {
-        target: 'http://192.168.10.18:8055',
-        changeOrigin: true,
-        secure: false,
-        logLevel: 'debug'
-      }
-    }
-  }
 });
+
+// Override devServer proxy configuration
+if (!baseConfig.devServer) {
+  baseConfig.devServer = {};
+}
+if (!baseConfig.devServer.proxy) {
+  baseConfig.devServer.proxy = {};
+}
+
+// Add our custom proxy for /api/chat
+baseConfig.devServer.proxy['/api/chat'] = {
+  target: 'http://192.168.10.18:8055',
+  changeOrigin: true,
+  secure: false,
+  logLevel: 'debug'
+};
+
+module.exports = baseConfig;
